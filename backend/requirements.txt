@@ -1,0 +1,5 @@
+treys==0.1.8
+pytest>=7.0
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+httpx2>=0.1
