@@ -15,3 +15,10 @@ class MasteryMap:
         previous = self.scores.get(concept_id, signal)
         self.scores[concept_id] = previous + weight * (signal - previous)
         return self.scores[concept_id]
+
+    def to_firestore_dict(self) -> dict:
+        return {"scores": dict(self.scores)}
+
+    @staticmethod
+    def from_firestore_dict(data: dict) -> "MasteryMap":
+        return MasteryMap(scores=dict(data.get("scores", {})))

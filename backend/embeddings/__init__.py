@@ -1,1 +1,1 @@
-"""Embedding adapters and similarity helpers.""
+"""Embedding adapters and similarity helpers."""

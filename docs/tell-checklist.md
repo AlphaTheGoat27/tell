@@ -46,8 +46,8 @@ Companion to the PRD. Work top to bottom; the math engine must be solid before a
 - [ ] Implement graceful clarifying questions for low-confidence parses (don't guess silently)
 
 ## Phase 5 — Build: Mastery Map & Vector Clustering
-- [ ] Implement the mastery-score update function (rolling signal across sessions, not last-hand-only)
-- [ ] Implement embedding generation for each new leak/hand and storage alongside the structured record
+- [x] Implement the mastery-score update function (rolling signal across sessions, not last-hand-only) — `MasteryMap.update()` EWA rolling score; `MasteryRepository` round-trips through `InMemoryStore` serialization (same seam as `HandRepository`); `to_firestore_dict`/`from_firestore_dict` pair added and verified by `test_mastery_repository_round_trips_through_serialization`. *(Step 3 — done & tested)*
+- [x] Implement embedding generation for each new leak/hand and storage alongside the structured record — `backend/embeddings/embedder.py` wired to `google-genai` SDK (`genai.Client(vertexai=True)` + `client.models.embed_content(model="gemini-embedding-001", ...)`); mock-tested locally (3 tests green); **live credential test still needed** (`python -c "from embeddings.embedder import embed_text; print(len(embed_text('bad river call')))"` should print `768`). Also fixed pre-existing `SyntaxError` in `embeddings/__init__.py` (unterminated docstring). *(Step 2 — done & tested locally, live API call needs your GCP credentials)*
 - [ ] Implement the Firestore `findNearest` similarity query to detect recurring leak patterns across surface-different hands
 - [ ] Add a minimum-similarity + same-leak-tag-agreement threshold before surfacing a "this keeps happening" callout (avoid false-positive pattern claims)
 - [ ] Confirm the mastery map and recurring-leak callout are genuinely user-visible in the UI, not backend-only state

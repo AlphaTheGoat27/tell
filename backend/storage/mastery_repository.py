@@ -1,12 +1,20 @@
 from models.mastery_map import MasteryMap
+from storage.firestore_client import InMemoryStore
 
 
 class MasteryRepository:
-    def __init__(self) -> None:
-        self._maps: dict[str, MasteryMap] = {}
+    """Mirrors HandRepository's seam pattern: same InMemoryStore today,
+    same drop-in path to real Firestore later."""
+
+    def __init__(self, store: InMemoryStore | None = None) -> None:
+        self.store = store or InMemoryStore()
 
     def get(self, user_id: str) -> MasteryMap:
-        return self._maps.setdefault(user_id, MasteryMap())
+        data = self.store.get("mastery_maps", user_id)
+        return MasteryMap.from_firestore_dict(data) if data else MasteryMap()
 
     def update(self, user_id: str, concept_id: str, signal: float) -> float:
-        return self.get(user_id).update(concept_id, signal)
+        mastery_map = self.get(user_id)
+        new_score = mastery_map.update(concept_id, signal)
+        self.store.save("mastery_maps", user_id, mastery_map.to_firestore_dict())
+        return new_score
