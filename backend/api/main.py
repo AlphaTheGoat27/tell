@@ -3,12 +3,14 @@ from uuid import uuid4
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
+from api.routes.health import router as health_router
 from leak_detection.leak_detector import compute_decision_points
 from models.hand import Hand
 from parsers.structured_parser import looks_like_structured_export, parse_structured_hand
 
 
 app = FastAPI(title="Tell API", version="0.1.0")
+app.include_router(health_router)
 
 
 class AnalyzeRequest(BaseModel):
@@ -16,13 +18,9 @@ class AnalyzeRequest(BaseModel):
 	user_id: str = "local-user"
 
 
-@app.get("/health")
-def health() -> dict[str, str]:
-	return {"status": "ok", "service": "tell-backend"}
-
-
 @app.post("/api/hands/analyze")
 def analyze_hand(request: AnalyzeRequest) -> dict:
+
 	if not looks_like_structured_export(request.raw_text):
 		return {
 			"status": "needs_clarification",
