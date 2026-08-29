@@ -62,11 +62,23 @@ def create_store() -> InMemoryStore | FirestoreStore:
     Local development stays runnable without credentials; Cloud Run automatically
     supplies them and therefore gets durable per-user memory.
     """
-    if not os.getenv("GOOGLE_CLOUD_PROJECT"):
+    project = os.getenv("GOOGLE_CLOUD_PROJECT")
+    if not project:
+        print(
+            "[storage] GOOGLE_CLOUD_PROJECT is not set -> using InMemoryStore. "
+            "Data will NOT appear in the Firestore console."
+        )
         return InMemoryStore()
     try:
-        return FirestoreStore()
-    except Exception:
+        store = FirestoreStore()
+        print(f"[storage] Connected to real Firestore for project '{project}'.")
+        return store
+    except Exception as error:
+        print(
+            f"[storage] Failed to connect to Firestore for project '{project}': "
+            f"{type(error).__name__}: {error}"
+        )
+        print("[storage] Falling back to InMemoryStore -- data will NOT persist.")
         return InMemoryStore()
 
 
