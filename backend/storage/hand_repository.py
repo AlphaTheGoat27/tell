@@ -13,3 +13,7 @@ class HandRepository:
     def get(self, hand_id: str) -> Hand | None:
         data = self.store.get("hands", hand_id)
         return Hand.from_firestore_dict(data) if data else None
+
+    def list_by_user(self, user_id: str) -> list[Hand]:
+        all_hands = [Hand.from_firestore_dict(d) for d in self.store.list("hands")]
+        return [h for h in all_hands if h.user_id == user_id]

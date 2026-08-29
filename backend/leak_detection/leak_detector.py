@@ -17,9 +17,18 @@ computed_equity and the leak tag are left as None: the product asks the user
 what they thought villain had before it can judge the call, it doesn't guess.
 """
 
-from models.hand import Action, ActionType, DecisionPoint, LeakTag, Street
 from math_engine.equity import calculate_equity
 from math_engine.pot_odds import calculate_pot_odds
+from models.hand import Action, ActionType, DecisionPoint, LeakTag, Street
+
+_STREET_BOARD_LEN = {Street.PREFLOP: 0, Street.FLOP: 3, Street.TURN: 4, Street.RIVER: 5}
+
+
+def board_as_of(street: Street, full_board: list[str]) -> list[str]:
+    """Full hand-history parses only give you the FINAL board. Decision points
+    on earlier streets need the board truncated to what was actually known at
+    that point -- you can't compute flop equity using turn/river cards."""
+    return full_board[: _STREET_BOARD_LEN[street]]
 
 
 def compute_decision_points(actions: list[Action]) -> list[DecisionPoint]:
