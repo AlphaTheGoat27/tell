@@ -67,6 +67,7 @@ class Hand:
     actions: list[Action] = field(default_factory=list)
     decision_points: list[DecisionPoint] = field(default_factory=list)
     leak_tags: list[LeakTag] = field(default_factory=list)
+    num_opponents: int = 1  # table size setting; drives the seat layout, not yet the equity math
     parsed_at: Optional[str] = None
     embedding: Optional[list[float]] = None  # filled in once Firestore vector step is wired
 
@@ -106,6 +107,7 @@ class Hand:
             actions=actions,
             decision_points=decision_points,
             leak_tags=[LeakTag(t) for t in data.get("leak_tags", [])],
+            num_opponents=data.get("num_opponents", 1),
             parsed_at=data.get("parsed_at"),
             embedding=data.get("embedding"),
         )

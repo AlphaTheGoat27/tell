@@ -5,6 +5,7 @@ next_question() bank still functions standalone. This file is what `adk run`
 and `adk web` discover and actually talk to Gemini through.
 """
 
+import os
 import warnings
 
 try:
@@ -66,7 +67,7 @@ imply otherwise.\
 
 root_agent = (
     Agent(
-        model="gemini-3.5-flash",
+        model=os.environ.get("TELL_COACH_MODEL", "gemini-3.5-flash"),
         name="root_agent",
         description="A Socratic poker coach that reviews hands and drills pot odds / hand-reading fundamentals.",
         instruction=COACH_INSTRUCTION,

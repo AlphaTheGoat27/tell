@@ -23,5 +23,9 @@ From `frontend/`, install npm dependencies, run the Vite development server, and
 
 - `GET /health` — local readiness check
 - `POST /api/hands/analyze` — parse a supported structured hand-history export
+- `POST /api/practice` — deal a practice hand against explainable bots
+- `POST /api/practice/{game_id}/action` — advance the hand with fold/check/call/raise
+- `POST /api/practice/{game_id}/bots` — resolve the post-fold winner prediction
+- `POST /api/practice/{game_id}/chat` — deterministic coach chat: checks the learner's best-five-card answers and answers hand-strength / pot-odds / outs questions using the math engine and hand reader (no LLM, so every number is exact)
 
 The frontend and backend are independently runnable, which keeps local testing pleasantly boring—in the best possible way.
