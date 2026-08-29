@@ -19,9 +19,27 @@ The local API uses in-memory storage and does not require cloud credentials. Clo
 
 From `frontend/`, install npm dependencies, run the Vite development server, and open the printed local URL. Production validation is available through the existing `build` and `lint` scripts.
 
+## Sign in with Google + Firestore memory
+
+Tell remembers each user individually:
+
+- The frontend uses Firebase Auth (Sign in with Google popup). Copy `frontend/.env.example` to `frontend/.env.local` and fill in your Firebase web-app values. Without them the app runs in zero-config demo mode with in-memory storage.
+- Every API request carries the Firebase ID token as `Authorization: Bearer <token>`; `backend/auth/firebase_auth.py` verifies it with firebase-admin and scopes all data to the verified uid (a client-supplied `user_id` can never impersonate another user).
+- With `GOOGLE_CLOUD_PROJECT` set (Cloud Run provides it automatically), `create_store()` persists to Cloud Firestore: analyzed hands with leak tags (`hands`), per-concept mastery scores (`mastery_maps`), decision logs (`user_actions_v1`), and explanation-style preferences (`writing_style_v1`).
+- Leak summaries are embedded (gemini-embedding-001, 768 dims, best-effort) and stored on `Hand.embedding`; the vector index is declared in `infra/firestore.indexes.json`. `infra/firestore.rules` locks every read/write to the owning uid.
+- Every analysis checks the user's stored hands for recurring mistakes and returns a `recurring_leak` callout, which the coach surfaces as a "Memory check" message.
+
+Backend env vars: `GOOGLE_CLOUD_PROJECT` (turns on Firestore), optional `FIREBASE_SERVICE_ACCOUNT` (service-account JSON path; otherwise Application Default Credentials are used), optional `TELL_AUTH_MODE=local` (dev override: keeps `local:` demo tokens working on machines that already have Google Application Default Credentials).
+
+Troubleshooting:
+
+- If the Sign-in-with-Google popup shows "The requested action is invalid", enable **Google** under Firebase console → Authentication → Sign-in method for your project (and keep `localhost` in Authorized domains).
+- On machines whose antivirus performs TLS inspection (e.g. Avast Web Shield), the Firestore **gRPC** connection fails certificate verification locally. This does not affect Cloud Run deployments; for local checks against the real database, use the REST API (see the smoke scripts) or exclude the dev tools from TLS scanning.
+
 ## API endpoints
 
 - `GET /health` — local readiness check
+- `GET /api/me` — resolved identity for the request's bearer token
 - `POST /api/hands/analyze` — parse a supported structured hand-history export
 - `POST /api/practice` — deal a practice hand against explainable bots
 - `POST /api/practice/{game_id}/action` — advance the hand with fold/check/call/raise

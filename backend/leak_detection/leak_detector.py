@@ -111,3 +111,58 @@ def evaluate_decision_point(
         action_taken=dp.action_taken,
         leak_tag=leak_tag,
     )
+
+
+def _tag_values(tags) -> list[str]:
+    return [getattr(t, "value", str(t)) for t in tags]
+
+
+def detect_recurring_leaks(
+    leak_tags: list,
+    past_hands: list,
+    new_embedding: list[float] | None = None,
+    min_similarity: float = 0.80,
+) -> dict | None:
+    """Cross-hand leak recurrence check (PRD 4.4 FR3 + 7.3).
+
+    Tag agreement alone drives the callout; embedding similarity, when both
+    hands have one, adds the "different-looking hand, same underlying pattern"
+    evidence. Returns the most-repeated leak or None when nothing recurs.
+    """
+    from embeddings.similarity_search import cosine_similarity
+
+    if not leak_tags:
+        return None
+
+    best: dict | None = None
+    for tag in dict.fromkeys(_tag_values(leak_tags)):
+        same_tag = [h for h in past_hands if tag in _tag_values(h.leak_tags)]
+        if not same_tag:
+            continue
+
+        similar_hands = []
+        if new_embedding:
+            for hand in same_tag:
+                if not hand.embedding:
+                    continue
+                try:
+                    score = cosine_similarity(new_embedding, hand.embedding)
+                except Exception:
+                    continue
+                if score >= min_similarity:
+                    similar_hands.append(
+                        {"hand_id": hand.id, "similarity": round(score, 3)}
+                    )
+
+        entry = {
+            "leak_tag": tag,
+            "previous_count": len(same_tag),
+            "similar_hands": similar_hands,
+            "message": (
+                f"This is hand #{len(same_tag) + 1} where '{tag}' came up "
+                "— want to drill that specifically?"
+            ),
+        }
+        if best is None or entry["previous_count"] > best["previous_count"]:
+            best = entry
+    return best

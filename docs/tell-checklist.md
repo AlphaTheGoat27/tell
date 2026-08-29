@@ -30,10 +30,10 @@ Companion to the PRD. Work top to bottom; the math engine must be solid before a
 - [ ] Benchmark equity-calculation latency; cache/precompute common preflop matchups if simulation is too slow for a snappy demo
 
 ## Phase 3 — Build: Data Layer
-- [ ] Set up Firestore collections: `User`, `MasteryMap` (subcollection), `Hand`, `Session`, `ConceptKB`, `RangeChart`
-- [ ] Set up Firestore security rules scoping all reads/writes to the authenticated user
-- [ ] Set up Firebase Auth
-- [ ] Create the Firestore vector index for `Hand.embedding` and `ConceptKB.embedding` (confirm dimension matches your embedding model's output)
+- [x] Set up Firestore collections: `User`, `MasteryMap` (subcollection), `Hand`, `Session`, `ConceptKB`, `RangeChart` — MVP persists `hands`, `mastery_maps`, `user_actions_v1`, `writing_style_v1` through the `create_store()` seam (`backend/storage/firestore_client.py`); same code runs against Firestore on Cloud Run and the in-memory store locally.
+- [x] Set up Firestore security rules scoping all reads/writes to the authenticated user — `infra/firestore.rules` requires `request.auth.uid == user_id` on every document; the backend now writes `user_id` into mastery docs too.
+- [x] Set up Firebase Auth — frontend Sign in with Google popup (`frontend/src/firebase.ts`), ID token attached to every API call (`setAuthTokenProvider` in `frontend/src/api.ts`), verified server-side with firebase-admin (`backend/auth/firebase_auth.py`). Without Firebase env config the app degrades to the zero-config local demo identity.
+- [x] Create the Firestore vector index for `Hand.embedding` and `ConceptKB.embedding` (confirm dimension matches your embedding model's output) — `infra/firestore.indexes.json` declares the 768-dim COSINE flat index on `hands.embedding` (matches gemini-embedding-001); ConceptKB collection not seeded yet.
 - [ ] Seed `ConceptKB` with short reference explanations for each concept in your taxonomy, with embeddings generated via the Vertex AI text-embedding model
 
 ## Phase 4 — Build: Hand Autopsy (Analyst Agent)
@@ -47,10 +47,10 @@ Companion to the PRD. Work top to bottom; the math engine must be solid before a
 
 ## Phase 5 — Build: Mastery Map & Vector Clustering
 - [x] Implement the mastery-score update function (rolling signal across sessions, not last-hand-only) — `MasteryMap.update()` EWA rolling score; `MasteryRepository` round-trips through `InMemoryStore` serialization (same seam as `HandRepository`); `to_firestore_dict`/`from_firestore_dict` pair added and verified by `test_mastery_repository_round_trips_through_serialization`. *(Step 3 — done & tested)*
-- [x] Implement embedding generation for each new leak/hand and storage alongside the structured record — `backend/embeddings/embedder.py` wired to `google-genai` SDK (`genai.Client(vertexai=True)` + `client.models.embed_content(model="gemini-embedding-001", ...)`); mock-tested locally (3 tests green); **live credential test still needed** (`python -c "from embeddings.embedder import embed_text; print(len(embed_text('bad river call')))"` should print `768`). Also fixed pre-existing `SyntaxError` in `embeddings/__init__.py` (unterminated docstring). *(Step 2 — done & tested locally, live API call needs your GCP credentials)*
-- [ ] Implement the Firestore `findNearest` similarity query to detect recurring leak patterns across surface-different hands
-- [ ] Add a minimum-similarity + same-leak-tag-agreement threshold before surfacing a "this keeps happening" callout (avoid false-positive pattern claims)
-- [ ] Confirm the mastery map and recurring-leak callout are genuinely user-visible in the UI, not backend-only state
+- [x] Implement embedding generation for each new leak/hand and storage alongside the structured record — `backend/embeddings/embedder.py` wired to `google-genai` SDK (`genai.Client(vertexai=True)` + `client.models.embed_content(model="gemini-embedding-001", ...)`); mock-tested locally (3 tests green); now called best-effort from `POST /api/hands/analyze` whenever the store is FirestoreStore (cloud mode), storing the vector on `Hand.embedding`. **live credential test still needed** (`python -c "from embeddings.embedder import embed_text; print(len(embed_text('bad river call')))"` should print `768`). Also fixed pre-existing `SyntaxError` in `embeddings/__init__.py` (unterminated docstring). *(Step 2 — done & tested locally, live API call needs your GCP credentials)*
+- [ ] Implement the Firestore `findNearest` similarity query to detect recurring leak patterns across surface-different hands — interim: `detect_recurring_leaks` (`backend/leak_detection/leak_detector.py`) matches new leaks against the user's stored hands by tag agreement plus cosine similarity on stored embeddings; native `findNearest` still to add once the vector index is deployed.
+- [x] Add a minimum-similarity + same-leak-tag-agreement threshold before surfacing a "this keeps happening" callout (avoid false-positive pattern claims) — `detect_recurring_leaks` requires same-tag agreement; embedding matches only count at cosine ≥ 0.80. The callout ships in the `/api/hands/analyze` response as `recurring_leak`.
+- [x] Confirm the mastery map and recurring-leak callout are genuinely user-visible in the UI, not backend-only state — verified in-browser: coach chat shows "Memory check — This is hand #N where '<tag>' came up", Dashboard renders the mastery map + "Top recurring leak" card, History lists stored hands with leak-tag filters.
 
 ## Phase 6 — Build: Socratic Coach Agent
 - [ ] Build the hint-level state machine (Level 1 question → Level 2 narrower question → Level 3 analogous worked example → Level 4 full walkthrough) with stubbed responses first

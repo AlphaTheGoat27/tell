@@ -6,6 +6,8 @@ google-genai>=1.0
 google-adk>=1.0
 google-cloud-firestore>=2.16
 google-auth>=2.0
+# Verifies Sign in with Google (Firebase Auth) ID tokens server-side.
+firebase-admin>=6.5
 google-cloud-texttospeech>=2.16
 # Make Python trust the OS/Windows cert store (fixes SSL verification against
 # Google APIs behind SSL-inspecting proxies; required for the Gemini client).

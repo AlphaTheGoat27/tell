@@ -16,5 +16,6 @@ class MasteryRepository:
     def update(self, user_id: str, concept_id: str, signal: float) -> float:
         mastery_map = self.get(user_id)
         new_score = mastery_map.update(concept_id, signal)
-        self.store.save("mastery_maps", user_id, mastery_map.to_firestore_dict())
+        data = {"user_id": user_id, **mastery_map.to_firestore_dict()}
+        self.store.save("mastery_maps", user_id, data)
         return new_score

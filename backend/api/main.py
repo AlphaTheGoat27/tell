@@ -1,13 +1,20 @@
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import Depends, FastAPI, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from api.routes.health import router as health_router
-from leak_detection.leak_detector import board_as_of, compute_decision_points, evaluate_decision_point
+from auth.firebase_auth import AuthUser, resolve_user
+from leak_detection.leak_detector import (
+    board_as_of,
+    compute_decision_points,
+    detect_recurring_leaks,
+    evaluate_decision_point,
+)
 from models.hand import Hand
 from parsers.structured_parser import looks_like_structured_export, parse_structured_hand
 from storage.firestore_client import (
+    FirestoreStore,
     UserAction,
     UserActionRepository,
     WritingStyleRepository,
@@ -28,6 +35,22 @@ style_repository = WritingStyleRepository(store)
 practice_games = PracticeGames()
 
 POT_ODDS_CONCEPT = "pot_odds"
+
+
+def effective_user_id(requested: str, user: AuthUser) -> str:
+    """A verified sign-in token always wins over a client-supplied user_id,
+    so one user can never read or write another user's memory."""
+    return user.uid if user.verified else requested
+
+
+@app.get("/api/me")
+def whoami(user: AuthUser = Depends(resolve_user)) -> dict:
+    return {
+        "uid": user.uid,
+        "email": user.email,
+        "name": user.name,
+        "verified": user.verified,
+    }
 
 
 class AnalyzeRequest(BaseModel):
@@ -77,13 +100,18 @@ def start_practice(request: PracticeStartRequest) -> dict:
 
 
 @app.post("/api/practice/{game_id}/action")
-def practice_action(game_id: str, request: PracticeActionRequest) -> dict:
+def practice_action(
+    game_id: str,
+    request: PracticeActionRequest,
+    user: AuthUser = Depends(resolve_user),
+) -> dict:
+    user_id = effective_user_id(request.user_id, user)
     try:
         result = practice_games.action(game_id, request.action)
         try:
             action_repository.log(
                 UserAction(
-                    user_id=request.user_id,
+                    user_id=user_id,
                     action_type=request.action,
                     context_street=result.get("street", ""),
                     context_hand=" ".join(result.get("hero_cards", [])),
@@ -113,14 +141,19 @@ def advance_practice_bots(game_id: str, request: AdvanceBotsRequest | None = Non
 
 
 @app.post("/api/practice/{game_id}/chat")
-def practice_chat(game_id: str, request: PracticeChatRequest) -> dict:
+def practice_chat(
+    game_id: str,
+    request: PracticeChatRequest,
+    user: AuthUser = Depends(resolve_user),
+) -> dict:
+    user_id = effective_user_id(request.user_id, user)
     try:
         result = practice_games.chat(game_id, request.message)
         if result.get("topic") == "best_hand" and result.get("correct") is not None:
             try:
                 action_repository.log(
                     UserAction(
-                        user_id=request.user_id,
+                        user_id=user_id,
                         action_type="quiz_correct" if result["correct"] else "quiz_wrong",
                         context_street=result.get("street", ""),
                         detail=request.message[:200],
@@ -168,11 +201,16 @@ def narrate(request: NarrationRequest) -> Response:
 
 
 @app.post("/api/hands/analyze")
-def analyze_hand(request: AnalyzeRequest) -> dict:
+def analyze_hand(
+    request: AnalyzeRequest,
+    user: AuthUser = Depends(resolve_user),
+) -> dict:
+    user_id = effective_user_id(request.user_id, user)
+
     try:
         action_repository.log(
             UserAction(
-                user_id=request.user_id,
+                user_id=user_id,
                 action_type="hand_analyzed",
                 detail=f"{request.num_opponents + 1}-max",
             )
@@ -203,11 +241,11 @@ def analyze_hand(request: AnalyzeRequest) -> dict:
 
         if evaluated.computed_equity is not None:
             signal = 0.0 if evaluated.leak_tag is not None else 1.0
-            mastery_repository.update(request.user_id, POT_ODDS_CONCEPT, signal)
+            mastery_repository.update(user_id, POT_ODDS_CONCEPT, signal)
             try:
                 action_repository.log(
                     UserAction(
-                        user_id=request.user_id,
+                        user_id=user_id,
                         action_type="quiz_correct" if signal else "quiz_wrong",
                         context_street=dp.street,
                         context_hand=" ".join(parsed["hero_cards"]),
@@ -217,16 +255,34 @@ def analyze_hand(request: AnalyzeRequest) -> dict:
                 )
                 if signal:
                     style_repository.record_win(
-                        request.user_id, POT_ODDS_CONCEPT, "math_first"
+                        user_id, POT_ODDS_CONCEPT, "math_first"
                     )
             except Exception:
                 pass
 
     leak_tags = [dp.leak_tag for dp in evaluated_decision_points if dp.leak_tag]
 
+    # Memory step 1: what did this user already get wrong before?
+    past_hands = hand_repository.list_by_user(user_id)
+
+    # Memory step 2: embed the leak summary in cloud mode so Firestore keeps
+    # vector memory alongside the structured record (PRD 4.4 FR2). Best-effort:
+    # embedding failures must never block a hand review.
+    embedding: list[float] | None = None
+    if isinstance(store, FirestoreStore):
+        try:
+            from embeddings.embedder import embed_text
+
+            summary = _leak_summary(parsed, leak_tags, evaluated_decision_points)
+            embedding = embed_text(summary) or None
+        except Exception:
+            embedding = None
+
+    recurring = detect_recurring_leaks(leak_tags, past_hands, new_embedding=embedding)
+
     hand = Hand(
         id=str(uuid4()),
-        user_id=request.user_id,
+        user_id=user_id,
         raw_text=request.raw_text,
         hero_cards=parsed["hero_cards"],
         board=parsed["board"],
@@ -234,6 +290,7 @@ def analyze_hand(request: AnalyzeRequest) -> dict:
         decision_points=evaluated_decision_points,
         leak_tags=leak_tags,
         num_opponents=request.num_opponents,
+        embedding=embedding,
     )
     hand_repository.save(hand)
 
@@ -241,16 +298,35 @@ def analyze_hand(request: AnalyzeRequest) -> dict:
         "status": "parsed",
         "hand": hand.to_firestore_dict(),
         "showdown": parsed["showdown"],
+        "recurring_leak": recurring,
     }
 
 
+def _leak_summary(parsed: dict, leak_tags: list, decision_points: list) -> str:
+    """Compact text describing what went wrong — the embedding target."""
+    parts = [f"leak:{getattr(t, 'value', t)}" for t in leak_tags]
+    for dp in decision_points:
+        if dp.leak_tag is not None:
+            parts.append(
+                f"{dp.street}: called {dp.call_amount} into {dp.pot_before}, "
+                f"needed {(dp.required_equity or 0):.2f}, "
+                f"had {(dp.computed_equity or 0):.2f}"
+            )
+    parts.append("hero:" + ",".join(parsed["hero_cards"]))
+    parts.append("board:" + ",".join(parsed["board"]))
+    return " ".join(parts)
+
+
 @app.post("/api/actions/log")
-def log_user_action(request: LogActionRequest) -> dict:
+def log_user_action(
+    request: LogActionRequest,
+    user: AuthUser = Depends(resolve_user),
+) -> dict:
     """Logs any user choice for Collaborative Partner adaptation."""
     try:
         action_repository.log(
             UserAction(
-                user_id=request.user_id,
+                user_id=effective_user_id(request.user_id, user),
                 action_type=request.action_type,
                 context_street=request.context_street,
                 context_hand=request.context_hand,
@@ -266,12 +342,17 @@ def log_user_action(request: LogActionRequest) -> dict:
 
 
 @app.get("/api/actions/recent")
-def get_recent_actions(user_id: str, limit: int = 20) -> dict:
+def get_recent_actions(
+    user_id: str,
+    limit: int = 20,
+    user: AuthUser = Depends(resolve_user),
+) -> dict:
     """Returns the last N actions for a user — used by the coach agent
     to surface 'you did this same thing last week'-style callbacks."""
-    actions = action_repository.recent(user_id, limit=limit)
-    leak_hint = action_repository.most_common_leak_hint(user_id)
-    style = style_repository.get(user_id, POT_ODDS_CONCEPT)
+    uid = effective_user_id(user_id, user)
+    actions = action_repository.recent(uid, limit=limit)
+    leak_hint = action_repository.most_common_leak_hint(uid)
+    style = style_repository.get(uid, POT_ODDS_CONCEPT)
     return {
         "actions": [a.to_dict() for a in actions],
         "leak_hint": leak_hint,
@@ -282,25 +363,32 @@ def get_recent_actions(user_id: str, limit: int = 20) -> dict:
 
 
 @app.get("/api/hands")
-def list_hands(user_id: str = "local-user") -> dict:
-    hands = hand_repository.list_by_user(user_id)
+def list_hands(
+    user_id: str = "local-user",
+    user: AuthUser = Depends(resolve_user),
+) -> dict:
+    hands = hand_repository.list_by_user(effective_user_id(user_id, user))
     return {"hands": [h.to_firestore_dict() for h in hands]}
 
 
 @app.get("/api/mastery/{user_id}")
-def get_mastery(user_id: str) -> dict:
-    mastery = mastery_repository.get(user_id).to_firestore_dict()
+def get_mastery(
+    user_id: str,
+    user: AuthUser = Depends(resolve_user),
+) -> dict:
+    uid = effective_user_id(user_id, user)
+    mastery = mastery_repository.get(uid).to_firestore_dict()
     try:
-        actions_30 = action_repository.recent(user_id, limit=30)
+        actions_30 = action_repository.recent(uid, limit=30)
         if actions_30:
             mastery["recent_action_count"] = len(actions_30)
-            hint = action_repository.most_common_leak_hint(user_id)
+            hint = action_repository.most_common_leak_hint(uid)
             if hint:
                 mastery["leak_hint"] = hint
     except Exception:
         pass
     try:
-        style = style_repository.get(user_id, POT_ODDS_CONCEPT)
+        style = style_repository.get(uid, POT_ODDS_CONCEPT)
         mastery["preferred_style_pot_odds"] = style.preferred_style()
     except Exception:
         pass

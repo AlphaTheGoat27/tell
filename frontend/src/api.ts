@@ -38,9 +38,21 @@ export type Hand = {
   num_opponents: number
 }
 
+export type RecurringLeak = {
+  leak_tag: LeakTag
+  previous_count: number
+  similar_hands: Array<{ hand_id: string; similarity: number }>
+  message: string
+}
+
 export type AnalyzeResponse =
   | { status: 'needs_clarification'; message: string }
-  | { status: 'parsed'; hand: Hand; showdown: Record<string, string[]> }
+  | {
+      status: 'parsed'
+      hand: Hand
+      showdown: Record<string, string[]>
+      recurring_leak: RecurringLeak | null
+    }
 
 export type MasteryMap = { scores: Record<string, number> }
 export type BotReasoning = {
@@ -74,9 +86,26 @@ export type PracticeGame = {
   hero_fold_street?: string | null
 }
 
+// Registered by App.tsx once Sign in with Google completes; the provider is
+// called per request so Firebase can refresh expired ID tokens transparently.
+let authTokenProvider: (() => Promise<string | null>) | null = null
+
+export function setAuthTokenProvider(provider: (() => Promise<string | null>) | null) {
+  authTokenProvider = provider
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (authTokenProvider) {
+    try {
+      const token = await authTokenProvider()
+      if (token) headers.Authorization = `Bearer ${token}`
+    } catch {
+      // fall through unauthenticated; backend serves local-mode identity
+    }
+  }
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     ...init,
   })
   if (!response.ok) {

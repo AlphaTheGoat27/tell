@@ -425,6 +425,17 @@ export function SessionView({ userId, onHandSaved }: SessionViewProps) {
           { label: 'Honestly I was guessing — show me the walkthrough', value: 'guess' },
         ],
       })
+      if (response.recurring_leak) {
+        const leak = response.recurring_leak
+        const similarityNote =
+          leak.similar_hands.length > 0
+            ? ` This also matches ${leak.similar_hands.length} earlier hand(s) by vector similarity.`
+            : ''
+        addMsg({
+          role: 'ai',
+          text: `Memory check — ${leak.message}${similarityNote}`,
+        })
+      }
     } catch {
       setError('Tell could not analyze this hand. Check that the API is running.')
     }
