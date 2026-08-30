@@ -14,7 +14,25 @@ Includes per-user action-tracking for Collaborative Partner track:
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
+
+
+def _configure_grpc_roots() -> None:
+    """Antivirus TLS inspection re-signs Google's server certificate with a
+    local CA, which gRPC's bundled roots reject. When a local export of the
+    OS trust store sits next to the backend (grpc_roots.pem), point gRPC at
+    it so Firestore works without disabling anything."""
+    if os.getenv("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH"):
+        return
+    roots = Path(__file__).resolve().parent.parent / "grpc_roots.pem"
+    if roots.exists():
+        os.environ["GRPC_DEFAULT_SSL_ROOTS_FILE_PATH"] = str(roots)
+
+
+# Apply on import so every Google gRPC client built later in this process
+# (Firestore, Text-to-Speech, Speech-to-Text) trusts the OS store.
+_configure_grpc_roots()
 
 
 class InMemoryStore:
@@ -62,6 +80,7 @@ def create_store() -> InMemoryStore | FirestoreStore:
     Local development stays runnable without credentials; Cloud Run automatically
     supplies them and therefore gets durable per-user memory.
     """
+    _configure_grpc_roots()
     project = os.getenv("GOOGLE_CLOUD_PROJECT")
     if not project:
         print(

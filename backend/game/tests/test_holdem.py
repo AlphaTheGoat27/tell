@@ -10,7 +10,8 @@ def test_showdown_reveals_every_hand_and_a_winner():
     assert public["complete"]
     assert not public["needs_prediction"]
     assert len(public["showdown_hands"]) == 3
-    assert "wins with" in public["result"]
+    # "You win with ..." when hero wins, "<Bot> wins with ..." otherwise.
+    assert "win" in public["result"] and "with" in public["result"]
 
 
 def test_hero_can_act_through_all_streets():

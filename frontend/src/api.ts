@@ -36,6 +36,14 @@ export type Hand = {
   decision_points: DecisionPoint[]
   leak_tags: LeakTag[]
   num_opponents: number
+  parsed_at?: string | null
+  source?: 'analyzed' | 'played' | string
+  result?: string
+  winner?: number | null
+  player_names?: string[]
+  hero_folded?: boolean
+  hero_fold_street?: string | null
+  showdown?: Record<string, string[]>
 }
 
 export type RecurringLeak = {
@@ -54,7 +62,12 @@ export type AnalyzeResponse =
       recurring_leak: RecurringLeak | null
     }
 
-export type MasteryMap = { scores: Record<string, number> }
+export type MasteryMap = {
+  scores: Record<string, number>
+  leak_hint?: string | null
+  recent_action_count?: number
+  preferred_style_pot_odds?: string
+}
 export type BotReasoning = {
   bot_name: string
   seat: number
@@ -84,6 +97,7 @@ export type PracticeGame = {
   last_hero_action?: string
   hero_folded?: boolean
   hero_fold_street?: string | null
+  error?: string
 }
 
 // Registered by App.tsx once Sign in with Google completes; the provider is
@@ -129,8 +143,51 @@ export function getMastery(userId: string): Promise<MasteryMap> {
   return apiFetch<MasteryMap>(`/mastery/${encodeURIComponent(userId)}`)
 }
 
-export function startPractice(players: number): Promise<PracticeGame> {
-  return apiFetch<PracticeGame>('/practice', { method: 'POST', body: JSON.stringify({ players }) })
+export type StorageInfo = {
+  persistent: boolean
+  mode: 'firestore' | 'memory'
+  project: string
+}
+
+export function getStorageInfo(): Promise<StorageInfo> {
+  return apiFetch<StorageInfo>('/storage')
+}
+
+export function startPractice(players: number, userId = 'local-user'): Promise<PracticeGame> {
+  return apiFetch<PracticeGame>('/practice', {
+    method: 'POST',
+    body: JSON.stringify({ players, user_id: userId }),
+  })
+}
+
+export function reviewSavedHand(handId: string): Promise<AnalyzeResponse> {
+  return apiFetch<AnalyzeResponse>(`/hands/${encodeURIComponent(handId)}/review`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+}
+
+/** Upload a microphone recording and get the Google Cloud Speech transcript. */
+export async function transcribeAudio(blob: Blob): Promise<string> {
+  const headers: Record<string, string> = {}
+  if (authTokenProvider) {
+    try {
+      const token = await authTokenProvider()
+      if (token) headers.Authorization = `Bearer ${token}`
+    } catch {
+      // fall through unauthenticated
+    }
+  }
+  const form = new FormData()
+  const ext = blob.type.includes('ogg') ? 'ogg' : blob.type.includes('wav') ? 'wav' : 'webm'
+  form.append('file', blob, `recording.${ext}`)
+  form.append('encoding', ext)
+  const response = await fetch(`${API_BASE}/transcribe`, { method: 'POST', headers, body: form })
+  if (!response.ok) {
+    throw new Error(`Transcription failed (${response.status})`)
+  }
+  const data = (await response.json()) as { text?: string }
+  return data.text ?? ''
 }
 
 export function playPracticeAction(gameId: string, action: string): Promise<PracticeGame> {

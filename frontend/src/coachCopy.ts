@@ -1,4 +1,4 @@
-import type { PracticeGame } from './api'
+import type { MasteryMap, PracticeGame } from './api'
 import {
   formatBoardDisplay,
   formatCardsDisplay,
@@ -252,6 +252,76 @@ export function chatRevealPotOdds(
 export function botLabel(seat: number): string {
   return BOT_NAMES[seat - 1] ?? `Bot ${seat}`
 }
+
+// --- Weakness-driven session focus ---
+
+const CONCEPT_FOCUS: Record<string, { title: string; line: string; voice: string }> = {
+  pot_odds: {
+    title: 'Pot Odds & Required Equity',
+    line: 'your pot-odds math. Before every call this session, say the price first: call ÷ (pot + call). If your equity is below that number, the call bleeds chips.',
+    voice: 'your pot odds math. Before every call, say the price first: call divided by pot plus call.',
+  },
+  preflop_ranges: {
+    title: 'Preflop Hand Selection',
+    line: 'your preflop hand selection. Before you act, name your hand out loud — premium, playable, or weak — then let that decide whether you put chips in.',
+    voice: 'your preflop hand selection. Before you act, name your hand: premium, playable, or weak.',
+  },
+  bet_sizing: {
+    title: 'Postflop Bet Sizing',
+    line: 'your bet sizing. Before each bet, decide the reason — value or bluff — because the reason sets the size, not the other way around.',
+    voice: 'your bet sizing. Before each bet, decide the reason: value, or bluff.',
+  },
+  hand_reading: {
+    title: 'Board Texture & Hand Reading',
+    line: 'your hand reading. On each street, ask what the board favors and narrow what your opponent can realistically hold before you act.',
+    voice: 'your hand reading. On each street, ask what the board favors before you act.',
+  },
+}
+
+const LEAK_HINT_NUDGE: { match: RegExp; line: string }[] = [
+  {
+    match: /miscalculating pot odds|pot odds/i,
+    line: 'I’ve noticed the pot-odds math keeps tripping you up, so I’ll walk through the formula in plain words before the numbers this time.',
+  },
+  {
+    match: /calls very wide|calling wide/i,
+    line: 'You’ve been calling a bit wide lately, so this session I’ll always show you the required equity before you commit chips.',
+  },
+  {
+    match: /folds too easily|folding too/i,
+    line: 'You’ve been folding a touch too often, so before you muck I’ll have you check what you beat and the price you’re getting.',
+  },
+]
+
+export type CoachFocus = { title: string; chat: string; voice: string } | null
+
+/** Turns the user's stored weaknesses (mastery map + leak hint) into a
+ * personalized focus line the coach shares at the start of a session. Returns
+ * null when there's nothing weak to work on, so strong players aren't nagged. */
+export function coachFocusFor(mastery: MasteryMap | null | undefined): CoachFocus {
+  if (!mastery) return null
+  const entries = Object.entries(mastery.scores ?? {})
+  if (!entries.length) return null
+
+  const [weakestKey, weakestScore] = entries.slice().sort((a, b) => a[1] - b[1])[0]
+  const info = CONCEPT_FOCUS[weakestKey]
+
+  // Only focus when something is actually below "strong".
+  if (weakestScore >= 0.7) return null
+  if (!info) return null
+
+  const nudge = LEAK_HINT_NUDGE.find((n) => n.match.test(mastery.leak_hint ?? ''))?.line
+
+  const chat = nudge
+    ? `This session let's work on ${info.line}\n${nudge}`
+    : `This session let's work on ${info.line}`
+  const voice = nudge
+    ? `This session, let's work on ${info.voice} ${nudge}`
+    : `This session, let's work on ${info.voice}`
+
+  return { title: info.title, chat, voice }
+}
+
 
 // Legacy aliases
 export const voiceForNewHand = voiceQuestionNewHand

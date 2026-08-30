@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Dashboard, History, SessionView } from './components'
 import { setAuthTokenProvider } from './api'
 import {
@@ -9,7 +9,9 @@ import {
   watchAuth,
 } from './firebase'
 
-type Tab = 'session' | 'dashboard' | 'history'
+const backgroundMusic = new URL('../music/music.mp3', import.meta.url).href
+
+type Tab = 'play' | 'analyze' | 'dashboard' | 'history'
 
 type SignedInUser = {
   name: string
@@ -19,12 +21,76 @@ type SignedInUser = {
   via: 'google' | 'demo'
 }
 
+const TABS: { key: Tab; label: string }[] = [
+  { key: 'play', label: 'Play' },
+  { key: 'analyze', label: 'Analyze' },
+  { key: 'dashboard', label: 'Dashboard' },
+  { key: 'history', label: 'History' },
+]
+
 export default function App() {
   const [signedIn, setSignedIn] = useState<SignedInUser | null>(null)
   const [googleError, setGoogleError] = useState('')
   const [googleBusy, setGoogleBusy] = useState(false)
-  const [tab, setTab] = useState<Tab>('session')
+  const [tab, setTab] = useState<Tab>('play')
   const [refreshKey, setRefreshKey] = useState(0)
+  const [reviewHandId, setReviewHandId] = useState<string | null>(null)
+  const [musicEnabled, setMusicEnabled] = useState(true)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+useEffect(() => {
+  const audio = new Audio(backgroundMusic)
+
+  audioRef.current = audio
+  audio.loop = true
+  audio.volume = 0.28
+  audio.preload = 'auto'
+
+  const startMusic = async () => {
+    try {
+      await audio.play()
+
+      window.removeEventListener('pointerdown', startMusic)
+      window.removeEventListener('keydown', startMusic)
+      window.removeEventListener('touchstart', startMusic)
+    } catch {
+      // Browser blocked autoplay.
+      // It will retry after user interaction.
+    }
+  }
+
+  // Try to start immediately.
+  void startMusic()
+
+  // Fallback for browsers that block autoplay.
+  window.addEventListener('pointerdown', startMusic)
+  window.addEventListener('keydown', startMusic)
+  window.addEventListener('touchstart', startMusic)
+
+  return () => {
+    window.removeEventListener('pointerdown', startMusic)
+    window.removeEventListener('keydown', startMusic)
+    window.removeEventListener('touchstart', startMusic)
+
+    audio.pause()
+    audio.currentTime = 0
+    audioRef.current = null
+  }
+}, [])
+
+useEffect(() => {
+  const audio = audioRef.current
+  if (!audio) return
+
+  if (musicEnabled) {
+    void audio.play().catch(() => {
+      // Autoplay/user-gesture restriction.
+    })
+  } else {
+    audio.pause()
+  }
+}, [musicEnabled])
+
 
   useEffect(() => {
     return watchAuth((fbUser) => {
@@ -45,9 +111,17 @@ export default function App() {
   }, [])
 
   const userId = signedIn?.uid ?? 'local-user'
+  // Memory (hands, mastery, history) belongs to a real signed-in account.
+  // Demo mode shares one identity, so it must not read or write saved memory.
+  const isSignedIn = signedIn?.via === 'google'
 
   function handleHandSaved() {
     setRefreshKey((k) => k + 1)
+  }
+
+  function handleReviewHand(handId: string) {
+    setReviewHandId(handId)
+    setTab('analyze')
   }
 
   async function handleGoogleSignIn() {
@@ -74,31 +148,16 @@ export default function App() {
 
   if (!signedIn) {
     return (
-      <div className="auth-screen vegas-bg">
-        <div className="auth-card">
-          <div style={{ textAlign: 'center', marginBottom: 28 }}>
-            <div
-              style={{
-                width: 56,
-                height: 56,
-                borderRadius: 14,
-                margin: '0 auto 14px',
-                background: 'linear-gradient(135deg, #d4af37 0%, #92400e 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 28,
-                fontWeight: 900,
-                color: '#1f2937',
-                boxShadow: '0 8px 24px rgba(212,175,55,0.25)',
-              }}
-            >
-              ♠
-            </div>
-            <h1 style={{ fontSize: 32, fontWeight: 800, marginBottom: 4 }}>
-              <span className="gold-text">Tell</span>
-            </h1>
-            <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)' }}>
+      <div className="auth-screen app-bg">
+        <div className="auth-card fade-in">
+          <div style={{ textAlign: 'center', marginBottom: 26 }}>
+            <img
+              src="/icon.png"
+              alt="Tell"
+              style={{ width: 180, margin: '0 auto 10px', display: 'block', borderRadius: 12, border: '1px solid #1a1a1a', background: '#fff', boxShadow: '4px 4px 0 #1a1a1a' }}
+            />
+            <h1 style={{ position: 'absolute', width: 1, height: 1, margin: 0, overflow: 'hidden' }}>Tell</h1>
+            <p style={{ fontSize: 14, color: 'var(--text-dim)', marginTop: 6 }}>
               Your Socratic poker study companion
             </p>
           </div>
@@ -111,18 +170,16 @@ export default function App() {
               className="gold-btn"
               style={{
                 width: '100%',
-                padding: '12px',
-                borderRadius: 10,
+                padding: 12,
                 fontSize: 14,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 10,
-                opacity: googleBusy ? 0.7 : 1,
               }}
             >
               <span aria-hidden="true">
-                <svg width="18" height="18" viewBox="0 0 48 48">
+                <svg width="17" height="17" viewBox="0 0 48 48">
                   <path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.1 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z" />
                   <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.1 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
                   <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z" />
@@ -134,12 +191,12 @@ export default function App() {
           ) : (
             <div
               style={{
-                padding: 12,
+                padding: 14,
                 borderRadius: 10,
-                background: 'rgba(255,255,255,0.04)',
-                border: '1px solid rgba(255,255,255,0.1)',
-                fontSize: 12,
-                color: 'rgba(255,255,255,0.55)',
+                background: 'rgba(30,27,18,0.04)',
+                border: '1px solid var(--border)',
+                fontSize: 13,
+                color: 'var(--text-dim)',
                 lineHeight: 1.6,
               }}
             >
@@ -150,15 +207,16 @@ export default function App() {
           )}
 
           {googleError && (
-            <div style={{ marginTop: 10, fontSize: 12, color: '#f87171' }}>{googleError}</div>
+            <div style={{ marginTop: 10, fontSize: 13, color: 'var(--red-ink)' }}>{googleError}</div>
           )}
 
-          <div style={{ marginTop: 20 }}>
-            <div style={{ textAlign: 'center', fontSize: 11, color: 'rgba(255,255,255,0.4)', margin: '14px 0' }}>
-              — OR —
+          <div style={{ marginTop: 18 }}>
+            <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--text-faint)', margin: '14px 0' }}>
+              OR
             </div>
             <button
               type="button"
+              className="btn-ghost"
               onClick={() => {
                 setAuthTokenProvider(null)
                 setSignedIn({
@@ -169,27 +227,17 @@ export default function App() {
                   via: 'demo',
                 })
               }}
-              style={{
-                width: '100%',
-                padding: '12px',
-                borderRadius: 10,
-                fontSize: 13,
-                fontWeight: 600,
-                cursor: 'pointer',
-                background: 'rgba(255,255,255,0.04)',
-                border: '1px solid rgba(212,175,55,0.25)',
-                color: '#d4af37',
-              }}
+              style={{ width: '100%', padding: 12, fontSize: 14 }}
             >
               Continue as demo (no account)
             </button>
           </div>
 
-          <div style={{ marginTop: 22, padding: 12, borderRadius: 10, background: 'rgba(212,175,55,0.05)', border: '1px solid rgba(212,175,55,0.15)' }}>
-            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: '#d4af37' }}>FIRESTORE MEMORY</div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', marginTop: 4, lineHeight: 1.6 }}>
-              Sign in with Google and your analyzed hands, leak tags, and mastery map persist
-              to Cloud Firestore under your account — the coach remembers what keeps tripping
+          <div style={{ marginTop: 22, padding: 14, borderRadius: 2, background: 'var(--gold-soft)', border: '1px solid rgba(26,26,26,0.4)' }}>
+            <div className="eyebrow">Firestore memory</div>
+            <div style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 6, lineHeight: 1.6 }}>
+              Sign in with Google and every hand you play or analyze, your leak tags, and your
+              mastery map persist to Cloud Firestore — the coach remembers what keeps tripping
               you up across sessions and devices.
             </div>
           </div>
@@ -199,114 +247,100 @@ export default function App() {
   }
 
   return (
-    <main className="min-h-screen vegas-bg">
-      <div style={{ maxWidth: 1300, margin: '0 auto', padding: '28px 24px 60px' }}>
-        <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
+    <main className="min-h-screen app-bg">
+      <header className="app-header">
+        <div className="brand">
+          <img src="/favicon.ico" alt="" style={{ width: 30, height: 30, borderRadius: 6 }} />
           <div>
-            <p style={{ fontSize: 10, fontWeight: 800, letterSpacing: 4, color: '#d4af37' }}>
-              POKER STUDY COMPANION · COLLABORATIVE TRACK
-            </p>
-            <h1 style={{ fontSize: 34, fontWeight: 800, letterSpacing: -0.5, marginTop: 2 }}>
-              <span className="gold-text">Tell</span>
-            </h1>
-            <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>
-              Hi {signedIn.name} — understand the decision, not just the result.
-            </p>
+            <div className="brand-name"><span className="gold-text">Tell</span></div>
+            <div className="brand-tag">Poker study companion</div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#e5e7eb' }}>
-                {signedIn.name}
-                {signedIn.via === 'google' && (
-                  <span
-                    style={{
-                      marginLeft: 8,
-                      fontSize: 9,
-                      fontWeight: 800,
-                      letterSpacing: 1,
-                      color: '#4ade80',
-                      border: '1px solid rgba(74,222,128,0.35)',
-                      borderRadius: 6,
-                      padding: '2px 6px',
-                      verticalAlign: 'middle',
-                    }}
-                  >
-                    SYNCED
-                  </span>
-                )}
-              </div>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>{signedIn.email}</div>
-            </div>
-            {signedIn.photoUrl ? (
-              <img
-                src={signedIn.photoUrl}
-                alt=""
-                referrerPolicy="no-referrer"
-                style={{ width: 40, height: 40, borderRadius: '50%', border: '1px solid #78350f' }}
-              />
-            ) : (
-              <div
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: '50%',
-                  background: 'linear-gradient(135deg, #d4af37 0%, #92400e 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontWeight: 900,
-                  fontSize: 15,
-                  color: '#1f2937',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
-                  border: '1px solid #78350f',
-                }}
-              >
-                {signedIn.name.charAt(0).toUpperCase()}
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={handleSignOut}
-              style={{
-                background: 'none',
-                border: '1px solid rgba(255,255,255,0.1)',
-                color: 'rgba(255,255,255,0.5)',
-                padding: '6px 12px',
-                borderRadius: 8,
-                fontSize: 11,
-                cursor: 'pointer',
-              }}
-            >
-              Sign out
-            </button>
-          </div>
-        </header>
+        </div>
 
-        <nav style={{ display: 'flex', gap: 4, borderBottom: '1px solid rgba(212,175,55,0.1)', marginBottom: 22 }} aria-label="Sections">
-          {([
-            ['session', '🎴 Table', 'Hand Autopsy / Live Bots'],
-            ['dashboard', '📊 Dashboard', 'Mastery Map'],
-            ['history', '🗂️ History', 'Past Hands'],
-          ] as const).map(([key, label, hint]) => (
-            <div key={key}>
-              <button
-                className={`nav-tab ${tab === key ? 'active' : ''}`}
-                onClick={() => setTab(key)}
-              >
-                {label}
-              </button>
-              {tab === key && (
-                <div style={{ fontSize: 10, color: 'rgba(212,175,55,0.6)', padding: '0 18px 6px', letterSpacing: 0.5 }}>
-                  {hint}
-                </div>
-              )}
-            </div>
+        <nav className="nav-tabs" aria-label="Sections">
+          {TABS.map(({ key, label }) => (
+            <button
+              key={key}
+              className={`nav-tab ${tab === key ? 'active' : ''}`}
+              onClick={() => setTab(key)}
+            >
+              {label}
+            </button>
           ))}
         </nav>
 
-        {tab === 'session' && <SessionView userId={userId} onHandSaved={handleHandSaved} />}
-        {tab === 'dashboard' && <Dashboard userId={userId} refreshKey={refreshKey} />}
-        {tab === 'history' && <History userId={userId} refreshKey={refreshKey} />}
+        <div className="user-chip">
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={() => setMusicEnabled((enabled) => !enabled)}
+            aria-label={musicEnabled ? 'Pause background music' : 'Play background music'}
+            title={musicEnabled ? 'Pause music' : 'Play music'}
+            style={{ marginRight: 4 }}
+          >
+            {musicEnabled ? 'Pause music' : 'Play music'}
+          </button>
+
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 13.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
+              {signedIn.name}
+              {signedIn.via === 'google' && <span className="synced-badge">SYNCED</span>}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>{signedIn.email}</div>
+          </div>
+          {signedIn.photoUrl ? (
+            <img
+              src={signedIn.photoUrl}
+              alt=""
+              referrerPolicy="no-referrer"
+              className="avatar"
+              style={{ border: '1px solid #1a1a1a' }}
+            />
+          ) : (
+            <div className="avatar">{signedIn.name.charAt(0).toUpperCase()}</div>
+          )}
+          <button type="button" className="btn-ghost" onClick={handleSignOut}>
+            Sign out
+          </button>
+        </div>
+      </header>
+
+      {!isSignedIn && (
+        <div
+          style={{
+            borderBottom: '1px solid var(--border)',
+            background: '#fff6d6',
+            padding: '9px 28px',
+            fontSize: 13.5,
+            color: 'var(--text-dim)',
+            textAlign: 'center',
+          }}
+        >
+          You’re in <strong style={{ color: 'var(--text)' }}>demo mode</strong> — hands and progress
+          aren’t saved and no one else’s are shown. Sign in with Google to keep your private history
+          and mastery.
+        </div>
+      )}
+
+      <div style={{ maxWidth: 1440, margin: '0 auto', padding: '24px 28px 64px' }}>
+        {tab === 'play' && (
+          <SessionView key="play" mode="play" userId={userId} isSignedIn={isSignedIn} onHandSaved={handleHandSaved} />
+        )}
+        {tab === 'analyze' && (
+          <SessionView
+            key="analyze"
+            mode="analyze"
+            userId={userId}
+            isSignedIn={isSignedIn}
+            onHandSaved={handleHandSaved}
+            initialHandId={reviewHandId}
+            onConsumeInitialHand={() => setReviewHandId(null)}
+          />
+        )}
+        {tab === 'dashboard' && <Dashboard userId={userId} isSignedIn={isSignedIn} refreshKey={refreshKey} />}
+        {tab === 'history' && (
+          <History userId={userId} isSignedIn={isSignedIn} refreshKey={refreshKey} onReviewHand={handleReviewHand} />
+        )}
       </div>
     </main>
   )

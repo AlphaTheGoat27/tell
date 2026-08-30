@@ -9,6 +9,8 @@ google-auth>=2.0
 # Verifies Sign in with Google (Firebase Auth) ID tokens server-side.
 firebase-admin>=6.5
 google-cloud-texttospeech>=2.16
+# Transcribes the coach-chat microphone input (Google Cloud Speech-to-Text).
+google-cloud-speech>=2.21
 # Make Python trust the OS/Windows cert store (fixes SSL verification against
 # Google APIs behind SSL-inspecting proxies; required for the Gemini client).
 pip-system-certs>=4.0

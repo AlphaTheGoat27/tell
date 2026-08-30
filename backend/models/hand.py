@@ -70,6 +70,15 @@ class Hand:
     num_opponents: int = 1  # table size setting; drives the seat layout, not yet the equity math
     parsed_at: Optional[str] = None
     embedding: Optional[list[float]] = None  # filled in once Firestore vector step is wired
+    # "analyzed" = pasted hand history, "played" = practice table session.
+    source: str = "analyzed"
+    result: str = ""  # e.g. "You win with Two Pair." (played hands)
+    winner: Optional[int] = None  # seat index, played hands only
+    player_names: list[str] = field(default_factory=list)
+    hero_folded: bool = False
+    hero_fold_street: Optional[str] = None
+    # Player label -> revealed cards (showdown or all-face-up after a fold).
+    showdown: dict = field(default_factory=dict)
 
     def to_firestore_dict(self) -> dict:
         """Firestore-ready plain dict. Enums become their string values."""
@@ -110,6 +119,13 @@ class Hand:
             num_opponents=data.get("num_opponents", 1),
             parsed_at=data.get("parsed_at"),
             embedding=data.get("embedding"),
+            source=data.get("source", "analyzed"),
+            result=data.get("result", ""),
+            winner=data.get("winner"),
+            player_names=data.get("player_names", []),
+            hero_folded=data.get("hero_folded", False),
+            hero_fold_street=data.get("hero_fold_street"),
+            showdown=data.get("showdown", {}),
         )
 
 

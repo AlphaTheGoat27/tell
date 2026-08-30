@@ -12,6 +12,8 @@ type Props = {
   botStacks?: number[]
   pot?: number
   street?: string
+  focusStreet?: string
+  playerNames?: string[]
   activeSeat?: number
   foldedSeats?: number[]
   winner?: number | null
@@ -31,24 +33,47 @@ const seatPositions = [
   'seat-5',
   'seat-6',
   'seat-7',
+  'seat-8',
 ]
 
-function Card({ card, down = false, delay = 0 }: { card?: string; down?: boolean; delay?: number }) {
+type CardSize = 'sm' | 'hero' | 'board'
+
+function Card({
+  card,
+  down = false,
+  size = 'board',
+  delay = 0,
+}: {
+  card?: string
+  down?: boolean
+  size?: CardSize
+  delay?: number
+}) {
   if (down) {
-    return <div className="card-back" style={{ animationDelay: `${delay}ms` }} />
+    return (
+      <div
+        className={`card-back ${size === 'sm' ? 'card--sm' : size === 'hero' ? 'card--hero' : 'card--board'} card-deal`}
+        style={{ animationDelay: `${delay}ms` }}
+      />
+    )
   }
   if (!card) {
-    return <span style={{ width: 60, height: 84, borderRadius: 6, border: '2px dashed rgba(212,175,55,0.25)', background: 'rgba(255,255,255,0.02)' }} />
+    return <span className={`card-slot ${size === 'board' ? 'card--board' : ''}`} />
   }
-  const suit = card.at(-1)!
-  const rank = card.slice(0, -1)
+  const suit = card.at(-1)!.toLowerCase()
+  const rank = card.slice(0, -1).toUpperCase() === 'T' ? '10' : card.slice(0, -1).toUpperCase()
   const isRed = suit === 'h' || suit === 'd'
+  const sizeClass = size === 'sm' ? 'card--sm' : size === 'hero' ? 'card--hero' : 'card--board'
   return (
-    <div className={`card ${isRed ? 'red' : 'black'} card-deal`} style={{ animationDelay: `${delay}ms` }}>
+    <div
+      className={`card ${isRed ? 'red' : 'black'} ${sizeClass} card-deal`}
+      style={{ animationDelay: `${delay}ms` }}
+    >
       <div className="corner-tl">
         <span className="rank">{rank}</span>
         <span className="suit">{symbols[suit]}</span>
       </div>
+      <span className="pip">{symbols[suit]}</span>
       <div className="corner-br">
         <span className="rank">{rank}</span>
         <span className="suit">{symbols[suit]}</span>
@@ -68,6 +93,8 @@ export function PokerTable({
   botStacks = [],
   pot = 0,
   street = 'preflop',
+  focusStreet,
+  playerNames,
   activeSeat = -1,
   foldedSeats = [],
   winner = null,
@@ -78,7 +105,7 @@ export function PokerTable({
 }: Props) {
   const totalSeats = numOpponents + 1
   const handFor = (seat: number) => {
-    if (showdownHands?.[seat]) return showdownHands[seat]
+    if (showdownHands?.[seat]?.length) return showdownHands[seat]
     if (seat === 0) return heroCards
     if (seat === 1 && villainCards.length) return villainCards
     return []
@@ -88,9 +115,10 @@ export function PokerTable({
     return botStacks[seat - 1] ?? 100
   }
   const nameFor = (seat: number) => {
-    if (seat === 0) return 'YOU'
-    const names = ['BOT ALEX', 'BOT SAM', 'BOT JORDAN', 'BOT CASEY', 'BOT RILEY', 'BOT DREW', 'BOT TAYLOR']
-    return names[seat - 1] ?? `BOT ${seat}`
+    if (playerNames?.[seat]) return playerNames[seat]
+    if (seat === 0) return 'You'
+    const names = ['Alex', 'Sam', 'Jordan', 'Casey', 'Riley', 'Drew', 'Taylor', 'Bob']
+    return names[seat - 1] ?? `Bot ${seat}`
   }
   const showCards = (seat: number) => {
     if (seat === 0) return true
@@ -99,26 +127,26 @@ export function PokerTable({
     return false
   }
   const hasLeaks = decisionPoints.some((dp) => dp.leak_tag)
+
   return (
-    <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)] min-h-180">
-      <div className="flex flex-col gap-4">
-        {chatPanel}
-        {infoPanel}
-      </div>
-      <div className="flex flex-col gap-4">
-        <div className="felt-table" style={{ aspectRatio: '16 / 10', minHeight: 440 }}>
-          <span className="street-label">{street}</span>
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px] items-start">
+      {/* Left: the table and everything about the current decision */}
+      <div className="flex flex-col gap-5 min-w-0">
+        <div className="table-stage">
+          <div className="felt-table" style={{ aspectRatio: '16 / 10', minHeight: 430 }}>
           {Array.from({ length: totalSeats }).map((_, seat) => {
             const isHero = seat === 0
             const isActive = activeSeat === seat
             const isFolded = foldedSeats.includes(seat)
             const isWinner = winner === seat
             return (
-              <div key={seat} className={`seat ${seatPositions[seat]}`}>
-                <div className={`player-label ${isHero ? 'hero' : ''} ${isActive ? 'active' : ''} ${isFolded ? 'folded' : ''}`}>
+              <div key={seat} className={`seat ${seatPositions[seat] ?? 'seat-3'}`}>
+                <div
+                  className={`player-label ${isHero ? 'hero' : ''} ${isActive ? 'active' : ''} ${isFolded ? 'folded' : ''}`}
+                >
                   <span className="name">
                     {nameFor(seat)}
-                    {isWinner && ' 🏆'}
+                    {isWinner && ' · wins'}
                   </span>
                   <span className="stack">${stackFor(seat).toFixed(2)}</span>
                 </div>
@@ -128,61 +156,87 @@ export function PokerTable({
                       key={i}
                       card={handFor(seat)[i]}
                       down={!showCards(seat) && !isFolded}
-                      delay={seat * 80 + i * 50}
+                      size={isHero ? 'hero' : 'sm'}
+                      delay={seat * 70 + i * 50}
                     />
                   ))}
                 </div>
-                {dealerSeat === seat && (
-                  <div style={{ position: 'absolute', top: -6, right: -6 }} className="dealer-chip">D</div>
-                )}
+                {dealerSeat === seat && <div className="dealer-chip">D</div>}
               </div>
             )
           })}
           <div className="board-area">
+            <span className="street-label">{street}</span>
             <div className="pot-display">
-              <div className="pot-label">Total Pot</div>
-              <div className="pot-amount">${pot.toFixed(2)}</div>
+              <span className="pot-label">Pot</span>
+              <span className="pot-amount">${pot.toFixed(2)}</span>
             </div>
             <div className="board-cards">
               {Array.from({ length: 5 }).map((_, i) => (
-                <Card key={i} card={board[i]} delay={300 + i * 120} />
+                <Card key={i} card={board[i]} size="board" delay={250 + i * 110} />
               ))}
             </div>
           </div>
+          </div>
         </div>
+
         {decisionPoints.length > 0 && (
           <div className="info-card fade-in">
-            <div className="info-card-title">Decision Breakdown</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {decisionPoints.map((dp, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span className="good-badge">{dp.street}</span>
-                  {dp.required_equity != null && (
-                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>
-                      Need: {(dp.required_equity * 100).toFixed(1)}%
+            <div className="info-card-title">Decision breakdown</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {decisionPoints.map((dp, i) => {
+                const dimmed = focusStreet && dp.street !== focusStreet
+                return (
+                  <div
+                    key={i}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      flexWrap: 'wrap',
+                      opacity: dimmed ? 0.45 : 1,
+                    }}
+                  >
+                    <span className="neutral-badge" style={{ minWidth: 62, justifyContent: 'center' }}>
+                      {dp.street}
                     </span>
-                  )}
-                  {dp.computed_equity != null && (
-                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>
-                      Had: {(dp.computed_equity * 100).toFixed(1)}%
-                    </span>
-                  )}
-                  {dp.leak_tag ? (
-                    <span className="leak-badge">⚠ {dp.leak_tag.replace(/_/g, ' ')}</span>
-                  ) : (
-                    <span className="good-badge">✓ solid</span>
-                  )}
-                </div>
-              ))}
+                    {dp.required_equity != null && (
+                      <span style={{ fontSize: 13.5, color: 'var(--text-dim)' }}>
+                        Needed <strong style={{ color: 'var(--text)' }}>{(dp.required_equity * 100).toFixed(1)}%</strong>
+                      </span>
+                    )}
+                    {dp.computed_equity != null && (
+                      <span style={{ fontSize: 13.5, color: 'var(--text-dim)' }}>
+                        had <strong style={{ color: 'var(--text)' }}>{(dp.computed_equity * 100).toFixed(1)}%</strong>
+                      </span>
+                    )}
+                    {dp.leak_tag ? (
+                      <span className="leak-badge">{dp.leak_tag.replace(/_/g, ' ')}</span>
+                    ) : (
+                      <span className="good-badge">solid</span>
+                    )}
+                  </div>
+                )
+              })}
             </div>
-            {!hasLeaks && decisionPoints.length > 0 && (
+            {!hasLeaks && (
               <div className="reasoning-block" style={{ marginTop: 10 }}>
-                Nice — no leaks flagged in these decisions. Your math lined up with what the spot required.
+                No leaks flagged in these decisions — your math lined up with what the spot required.
               </div>
             )}
           </div>
         )}
+
         {actionPanel}
+      </div>
+
+      {/* Right: the coach conversation, always visible */}
+      <div
+        className="flex flex-col gap-5 min-w-0 xl:sticky xl:top-[84px]"
+        style={{ height: 'min(760px, calc(100vh - 108px))' }}
+      >
+        {chatPanel}
+        {infoPanel}
       </div>
     </div>
   )

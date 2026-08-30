@@ -5,3 +5,6 @@ __pycache__/
 .env
 node_modules/
 dist/
+backend/grpc_roots.pem
+*.step.json
+.step.json

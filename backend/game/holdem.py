@@ -161,6 +161,21 @@ class PracticeHand:
     last_intro: str | None = None
     needs_prediction: bool = False
     prediction_resolved: bool = False
+    user_id: str = ""
+    # Chronological betting log used to persist the hand to Firestore:
+    # entries are {street, actor, action, amount, pot_after}.
+    action_log: list[dict] = field(default_factory=list)
+
+    def _log(self, actor: str, action: str, amount: float = 0.0) -> None:
+        self.action_log.append(
+            {
+                "street": self.street,
+                "actor": actor,
+                "action": action,
+                "amount": round(amount, 2),
+                "pot_after": round(self.pot, 2),
+            }
+        )
 
     @classmethod
     def deal(cls, players: int) -> "PracticeHand":
@@ -173,8 +188,14 @@ class PracticeHand:
             hands=hands,
             bot_stacks=[99.0] * (players - 1),
         )
+        hand._log("hero", "post", 0.5)
+        hand._log(hand.bot_name(1), "post", 1.0)
         hand.last_intro = choice(STREET_INTROS["preflop"])
         return hand
+
+    @staticmethod
+    def bot_name(seat: int) -> str:
+        return BOT_PERSONALITIES[(seat - 1) % len(BOT_PERSONALITIES)]["name"]
 
     def _bot_reasoning(self, seat: int, action: str, wager: float) -> BotAction:
         personality = BOT_PERSONALITIES[(seat - 1) % len(BOT_PERSONALITIES)]
@@ -254,6 +275,9 @@ class PracticeHand:
                     amount = hero_wager * (2.0 if bot_act == "raise" else 1.0)
                     self.bot_stacks[i] -= amount
                     self.pot += amount
+                    self._log(self.bot_name(seat), bot_act, amount)
+                else:
+                    self._log(self.bot_name(seat), "fold", 0.0)
                 self.bot_actions.append(self._bot_reasoning(seat, bot_act, hero_wager))
         else:
             for i in range(active_bots):
@@ -263,8 +287,10 @@ class PracticeHand:
                     bet = 2.0
                     self.bot_stacks[i] -= bet
                     self.pot += bet
+                    self._log(self.bot_name(seat), "raise", bet)
                     self.bot_actions.append(self._bot_reasoning(seat, "raise", bet))
                 else:
+                    self._log(self.bot_name(seat), "check", 0.0)
                     self.bot_actions.append(self._bot_reasoning(seat, "check", 0))
 
     def _deal_all_remaining(self) -> None:
@@ -280,6 +306,7 @@ class PracticeHand:
         if action == "fold":
             self.hero_folded = True
             self.hero_fold_street = self.street
+            self._log("hero", "fold", 0.0)
             for i in range(1, self.players):
                 if i < len(self.hands):
                     self.bot_actions.append(self._bot_reasoning(i, "show", 0))
@@ -289,6 +316,7 @@ class PracticeHand:
         wager = 0 if action == "check" else (3.0 if action == "raise" else 1.0)
         self.hero_stack -= wager
         self.pot += wager
+        self._log("hero", action, wager)
         self._run_bots(action, wager)
         current_street_before = self.street
         self._deal_street()
@@ -321,7 +349,8 @@ class PracticeHand:
         winner_name = "You" if winner == 0 else BOT_PERSONALITIES[(winner - 1) % len(BOT_PERSONALITIES)]["name"]
         win_class = EVALUATOR.get_rank_class(scores[winner])
         hand_name = EVALUATOR.class_to_string(win_class)
-        self.result = f"{winner_name} wins with {hand_name}."
+        verb = "win" if winner == 0 else "wins"
+        self.result = f"{winner_name} {verb} with {hand_name}."
 
     def _coach_voice(self) -> str:
         hand = _format_cards(self.hands[0]) if self.hands else "your cards"
@@ -385,10 +414,14 @@ class PracticeGames:
     def __init__(self) -> None:
         self.games: dict[str, PracticeHand] = {}
 
-    def create(self, players: int) -> dict:
+    def create(self, players: int, user_id: str = "") -> dict:
         game = PracticeHand.deal(players)
+        game.user_id = user_id
         self.games[game.id] = game
         return game.public()
+
+    def get(self, game_id: str) -> PracticeHand | None:
+        return self.games.get(game_id)
 
     def action(self, game_id: str, action: str) -> dict:
         game = self.games.get(game_id)
