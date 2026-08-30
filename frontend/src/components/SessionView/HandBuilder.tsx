@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { speakCoach } from '../../coachSpeech'
 import { formatCardDisplay } from '../../cards'
+import { SuitIcon } from '../../SuitIcon'
 
 const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A']
 const SUITS = ['s', 'h', 'd', 'c']
-const SUIT_SYMBOL: Record<string, string> = { s: '♠', h: '♥', d: '♦', c: '♣' }
 const ALL_CARDS = SUITS.flatMap((s) => RANKS.map((r) => `${r}${s}`))
 
 export type TargetKey = 'hero' | 'villain' | 'board'
@@ -88,20 +88,26 @@ function SlotCard({ card, onRemove }: { card?: string; onRemove?: () => void }) 
     return <button type="button" className="builder-card-slot" aria-label="Empty card slot" onClick={onRemove} />
   }
   const rank = card.slice(0, -1).toUpperCase() === 'T' ? '10' : card.slice(0, -1).toUpperCase()
-  const suit = SUIT_SYMBOL[card.slice(-1).toLowerCase()]
+  const suit = card.slice(-1).toLowerCase()
   return (
     <button
       type="button"
-      className={`builder-card-slot filled card card--sm ${isRed(card) ? 'red' : 'black'}`}
+      className={`builder-card-slot filled card card--sm ${isRed(card) ? 'red' : 'black'} suit-${suit}`}
       style={{ animation: 'none' }}
       onClick={onRemove}
       title="Click to remove"
     >
       <div className="corner-tl">
         <span className="rank">{rank}</span>
-        <span className="suit">{suit}</span>
+        <SuitIcon suit={suit} className="suit" />
       </div>
-      <span className="pip">{suit}</span>
+      <div className="pip">
+        <SuitIcon suit={suit} />
+      </div>
+      <div className="corner-br">
+        <span className="rank">{rank}</span>
+        <SuitIcon suit={suit} className="suit" />
+      </div>
     </button>
   )
 }
@@ -234,18 +240,18 @@ export function HandBuilder({ busy, data, onDataChange, onAnalyze }: HandBuilder
           {ALL_CARDS.map((card) => {
             const disabled = used.has(card) || values[active].length >= caps[active]
             const rank = card.slice(0, -1).toUpperCase() === 'T' ? '10' : card.slice(0, -1).toUpperCase()
-            const suit = SUIT_SYMBOL[card.slice(-1).toLowerCase()]
+            const suit = card.slice(-1).toLowerCase()
             return (
               <button
                 key={card}
                 type="button"
-                className={`deck-card ${isRed(card) ? 'red' : 'black'}`}
+                className={`deck-card ${isRed(card) ? 'red' : 'black'} suit-${suit}`}
                 disabled={disabled}
                 onClick={() => assign(card)}
                 title={formatCardDisplay(card)}
               >
                 <span>{rank}</span>
-                <span>{suit}</span>
+                <SuitIcon suit={suit} size={13} />
               </button>
             )
           })}

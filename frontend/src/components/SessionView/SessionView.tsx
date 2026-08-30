@@ -41,6 +41,7 @@ import {
   voiceRevealPrediction,
 } from '../../coachCopy'
 import { formatBoardDisplay, formatCardsDisplay } from '../../cards'
+import { SuitIcon } from '../../SuitIcon'
 import { useSpeechToText } from '../../useSpeechToText'
 
 type SessionViewProps = {
@@ -181,7 +182,6 @@ function showdownBySeat(hand: Hand, playerList: string[]): string[][] {
 }
 
 function MiniCards({ cards }: { cards: string[] }) {
-  const symbols: Record<string, string> = { s: '♠', h: '♥', d: '♦', c: '♣' }
   return (
     <div style={{ display: 'flex', gap: 4 }}>
       {cards.map((card) => {
@@ -189,15 +189,17 @@ function MiniCards({ cards }: { cards: string[] }) {
         const rank = card.slice(0, -1).toUpperCase()
         const isRed = suit === 'h' || suit === 'd'
         return (
-          <div key={card} className={`card card--sm ${isRed ? 'red' : 'black'}`} style={{ animation: 'none' }}>
+          <div key={card} className={`card card--sm ${isRed ? 'red' : 'black'} suit-${suit}`} style={{ animation: 'none' }}>
             <div className="corner-tl">
               <span className="rank">{rank === 'T' ? '10' : rank}</span>
-              <span className="suit">{symbols[suit]}</span>
+              <SuitIcon suit={suit} className="suit" />
             </div>
-            <span className="pip">{symbols[suit]}</span>
+            <div className="pip">
+              <SuitIcon suit={suit} />
+            </div>
             <div className="corner-br">
               <span className="rank">{rank === 'T' ? '10' : rank}</span>
-              <span className="suit">{symbols[suit]}</span>
+              <SuitIcon suit={suit} className="suit" />
             </div>
           </div>
         )
@@ -286,16 +288,21 @@ export function SessionView({ mode, userId, isSignedIn = false, onHandSaved, ini
 
   // Shares the weakness focus once per session. In play mode the voice is
   // bundled into the opening question's speech (a second speakCoach call would
-  // cancel it); in analyze mode it speaks standalone. Returns the voice suffix.
+  // cancel it); in analyze mode it speaks standalone. Returns the voice text.
   function announceFocus(opts: { speak: 'bundled' | 'standalone'; delayMs?: number }): string {
     if (!coachFocus || focusAnnouncedRef.current) return ''
     focusAnnouncedRef.current = true
     const focus = coachFocus
-    setTimeout(() => {
+    if (opts.delayMs && opts.delayMs > 0) {
+      setTimeout(() => {
+        addMsg({ role: 'ai', text: `🎯 Session focus — ${focus.title}\n${focus.chat}` })
+        if (opts.speak === 'standalone') speakCoach(focus.voice)
+      }, opts.delayMs)
+    } else {
       addMsg({ role: 'ai', text: `🎯 Session focus — ${focus.title}\n${focus.chat}` })
       if (opts.speak === 'standalone') speakCoach(focus.voice)
-    }, opts.delayMs ?? 1500)
-    return opts.speak === 'bundled' ? ` ${focus.voice}` : ''
+    }
+    return opts.speak === 'bundled' ? focus.voice : ''
   }
 
   // Race fallback: if the mastery fetch lands AFTER the session opened,
@@ -307,10 +314,8 @@ export function SessionView({ mode, userId, isSignedIn = false, onHandSaved, ini
     if (!inPlaySession && !inReview) return
     focusAnnouncedRef.current = true
     const focus = coachFocus
-    setTimeout(() => {
-      addMsg({ role: 'ai', text: `🎯 Session focus — ${focus.title}\n${focus.chat}` })
-      speakCoach(focus.voice)
-    }, 600)
+    addMsg({ role: 'ai', text: `🎯 Session focus — ${focus.title}\n${focus.chat}` })
+    speakCoach(focus.voice)
   }, [coachFocus, mode, tableReady, game, analyzeStep])
 
   useEffect(() => {
@@ -389,7 +394,8 @@ export function SessionView({ mode, userId, isSignedIn = false, onHandSaved, ini
       spokenKeyRef.current = coachSpeechKey(g)
       setGame(g)
       const focusVoice = announceFocus({ speak: 'bundled' })
-      speakCoach(voiceQuestionNewHand(g) + focusVoice)
+      const coachVoice = focusVoice ? `${focusVoice} ${voiceQuestionNewHand(g)}` : voiceQuestionNewHand(g)
+      speakCoach(coachVoice)
       addMsg({ role: 'ai', text: chatQuestionNewHand(g) })
       setTimeout(() => {
         addMsg({
@@ -515,7 +521,8 @@ export function SessionView({ mode, userId, isSignedIn = false, onHandSaved, ini
         setGame(g)
         spokenKeyRef.current = coachSpeechKey(g)
         const focusVoice = announceFocus({ speak: 'bundled' })
-        speakCoach(voiceQuestionNewHand(g) + focusVoice)
+        const coachVoice = focusVoice ? `${focusVoice} ${voiceQuestionNewHand(g)}` : voiceQuestionNewHand(g)
+        speakCoach(coachVoice)
         addMsg({ role: 'ai', text: chatQuestionNewHand(g) })
         setTimeout(() => {
           addMsg({

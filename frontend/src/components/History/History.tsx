@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { getStorageInfo, listHands, type Hand } from '../../api'
 import { formatBoardDisplay } from '../../cards'
+import { SuitIcon } from '../../SuitIcon'
 import { formatResult } from '../../coachCopy'
 
 type HistoryProps = {
@@ -10,8 +11,6 @@ type HistoryProps = {
   onReviewHand?: (handId: string) => void
 }
 
-const SUITS: Record<string, string> = { s: '♠', h: '♥', d: '♦', c: '♣' }
-
 function MiniCards({ cards }: { cards: string[] }) {
   return (
     <div style={{ display: 'flex', gap: 4 }}>
@@ -20,15 +19,17 @@ function MiniCards({ cards }: { cards: string[] }) {
         const rank = card.slice(0, -1).toUpperCase()
         const isRed = suit === 'h' || suit === 'd'
         return (
-          <div key={card} className={`card card--sm ${isRed ? 'red' : 'black'}`}>
+          <div key={card} className={`card card--sm ${isRed ? 'red' : 'black'} suit-${suit}`}>
             <div className="corner-tl">
               <span className="rank">{rank === 'T' ? '10' : rank}</span>
-              <span className="suit">{SUITS[suit]}</span>
+              <SuitIcon suit={suit} className="suit" />
             </div>
-            <span className="pip">{SUITS[suit]}</span>
+            <div className="pip">
+              <SuitIcon suit={suit} />
+            </div>
             <div className="corner-br">
               <span className="rank">{rank === 'T' ? '10' : rank}</span>
-              <span className="suit">{SUITS[suit]}</span>
+              <SuitIcon suit={suit} className="suit" />
             </div>
           </div>
         )

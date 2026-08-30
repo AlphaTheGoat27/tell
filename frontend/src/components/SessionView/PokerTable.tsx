@@ -23,7 +23,8 @@ type Props = {
   infoPanel?: ReactNode
 }
 
-const symbols: Record<string, string> = { s: '♠', h: '♥', d: '♦', c: '♣' }
+import { SuitIcon } from '../../SuitIcon'
+
 const seatPositions = [
   'seat-hero',
   'seat-1',
@@ -49,34 +50,36 @@ function Card({
   size?: CardSize
   delay?: number
 }) {
+  const sizeClass = size === 'sm' ? 'card--sm' : size === 'hero' ? 'card--hero' : 'card--board'
   if (down) {
     return (
       <div
-        className={`card-back ${size === 'sm' ? 'card--sm' : size === 'hero' ? 'card--hero' : 'card--board'} card-deal`}
+        className={`card-back ${sizeClass} card-deal`}
         style={{ animationDelay: `${delay}ms` }}
       />
     )
   }
   if (!card) {
-    return <span className={`card-slot ${size === 'board' ? 'card--board' : ''}`} />
+    return <span className={`card-slot ${sizeClass}`} />
   }
   const suit = card.at(-1)!.toLowerCase()
   const rank = card.slice(0, -1).toUpperCase() === 'T' ? '10' : card.slice(0, -1).toUpperCase()
   const isRed = suit === 'h' || suit === 'd'
-  const sizeClass = size === 'sm' ? 'card--sm' : size === 'hero' ? 'card--hero' : 'card--board'
   return (
     <div
-      className={`card ${isRed ? 'red' : 'black'} ${sizeClass} card-deal`}
+      className={`card ${isRed ? 'red' : 'black'} suit-${suit} ${sizeClass} card-deal`}
       style={{ animationDelay: `${delay}ms` }}
     >
       <div className="corner-tl">
         <span className="rank">{rank}</span>
-        <span className="suit">{symbols[suit]}</span>
+        <SuitIcon suit={suit} className="suit" />
       </div>
-      <span className="pip">{symbols[suit]}</span>
+      <div className="pip">
+        <SuitIcon suit={suit} />
+      </div>
       <div className="corner-br">
         <span className="rank">{rank}</span>
-        <span className="suit">{symbols[suit]}</span>
+        <SuitIcon suit={suit} className="suit" />
       </div>
     </div>
   )

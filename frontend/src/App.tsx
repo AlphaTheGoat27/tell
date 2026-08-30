@@ -36,51 +36,54 @@ export default function App() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [reviewHandId, setReviewHandId] = useState<string | null>(null)
   const [musicEnabled, setMusicEnabled] = useState(true)
+  const [musicVolume, setMusicVolume] = useState(0.28)
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
-useEffect(() => {
-  const audio = new Audio(backgroundMusic)
+  useEffect(() => {
+    const audio = new Audio(backgroundMusic)
 
-  audioRef.current = audio
-  audio.loop = true
-  audio.volume = 0.28
-  audio.preload = 'auto'
+    audioRef.current = audio
+    audio.loop = true
+    audio.volume = musicVolume
+    audio.preload = 'auto'
 
-  const startMusic = async () => {
-    try {
-      await audio.play()
+    const startMusic = async () => {
+      try {
+        await audio.play()
 
+        window.removeEventListener('pointerdown', startMusic)
+        window.removeEventListener('keydown', startMusic)
+        window.removeEventListener('touchstart', startMusic)
+      } catch {
+        // Browser blocked autoplay.
+        // It will retry after user interaction.
+      }
+    }
+
+    // Try to start immediately.
+    void startMusic()
+
+    // Fallback for browsers that block autoplay.
+    window.addEventListener('pointerdown', startMusic)
+    window.addEventListener('keydown', startMusic)
+    window.addEventListener('touchstart', startMusic)
+
+    return () => {
       window.removeEventListener('pointerdown', startMusic)
       window.removeEventListener('keydown', startMusic)
       window.removeEventListener('touchstart', startMusic)
-    } catch {
-      // Browser blocked autoplay.
-      // It will retry after user interaction.
+
+      audio.pause()
+      audio.currentTime = 0
+      audioRef.current = null
     }
-  }
-
-  // Try to start immediately.
-  void startMusic()
-
-  // Fallback for browsers that block autoplay.
-  window.addEventListener('pointerdown', startMusic)
-  window.addEventListener('keydown', startMusic)
-  window.addEventListener('touchstart', startMusic)
-
-  return () => {
-    window.removeEventListener('pointerdown', startMusic)
-    window.removeEventListener('keydown', startMusic)
-    window.removeEventListener('touchstart', startMusic)
-
-    audio.pause()
-    audio.currentTime = 0
-    audioRef.current = null
-  }
-}, [])
+  }, [])
 
 useEffect(() => {
   const audio = audioRef.current
   if (!audio) return
+
+  audio.volume = musicVolume
 
   if (musicEnabled) {
     void audio.play().catch(() => {
@@ -89,7 +92,7 @@ useEffect(() => {
   } else {
     audio.pause()
   }
-}, [musicEnabled])
+}, [musicEnabled, musicVolume])
 
 
   useEffect(() => {
@@ -270,6 +273,76 @@ useEffect(() => {
         </nav>
 
         <div className="user-chip">
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              marginRight: 6,
+              padding: '7px 10px 7px 8px',
+              border: '1px solid var(--border)',
+              borderRadius: 999,
+              background: 'rgba(255,255,255,0.5)',
+              boxShadow: 'inset 0 0 0 1px rgba(26,26,26,0.02)',
+            }}
+          >
+            <label
+              htmlFor="music-volume"
+              aria-label="Music volume"
+              title="Music volume"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'flex-end',
+                justifyContent: 'center',
+                width: 30,
+                height: 22,
+                flexShrink: 0,
+                cursor: 'pointer',
+                color: musicEnabled ? 'var(--ink)' : 'var(--text-dim)',
+                overflow: 'visible',
+              }}
+            >
+              <svg width="30" height="22" viewBox="0 0 32 22" aria-hidden="true" style={{ display: 'block' }}>
+                <path d="M3 8.5v5h4.2l5.1 4.3V4.2L7.2 8.5H3Z" fill="currentColor" opacity={musicEnabled ? 1 : 0.7} />
+                {[0.18, 0.38, 0.58, 0.8].map((level, index) => {
+                  const active = musicVolume >= level
+                  return (
+                    <rect
+                      key={level}
+                      x={14 + index * 4.4}
+                      y={15 - (active ? 9.5 * level : 0)}
+                      width="3"
+                      height={active ? 10 * level + 3 : 3}
+                      rx="1.5"
+                      fill={active ? '#d4a52a' : '#c9c1a4'}
+                      opacity={musicEnabled ? 1 : 0.45}
+                    />
+                  )
+                })}
+              </svg>
+            </label>
+
+            <input
+              id="music-volume"
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={musicVolume}
+              disabled={!musicEnabled}
+              onChange={(event) => setMusicVolume(Number(event.target.value))}
+              aria-label="Adjust background music volume"
+              title="Adjust music volume"
+              style={{
+                width: 86,
+                accentColor: '#d4a52a',
+                cursor: musicEnabled ? 'pointer' : 'not-allowed',
+                display: 'block',
+                margin: 0,
+              }}
+            />
+          </div>
+
           <button
             type="button"
             className="btn-ghost"

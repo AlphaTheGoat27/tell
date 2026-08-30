@@ -1,4 +1,18 @@
-const SUIT_SYMBOLS: Record<string, string> = { s: '♠', h: '♥', d: '♦', c: '♣' }
+export const SUIT_SYMBOLS: Record<string, string> = { s: '♠', h: '♥', d: '♦', c: '♣' }
+
+export const SUIT_NAMES: Record<string, string> = {
+  s: 'spades',
+  h: 'hearts',
+  d: 'diamonds',
+  c: 'clubs',
+}
+
+export const SUIT_COLORS: Record<string, string> = {
+  s: '#0f172a', // Spades (charcoal black)
+  h: '#dc2626', // Hearts (crisp red)
+  d: '#2563eb', // Diamonds (royal blue)
+  c: '#16a34a', // Clubs (emerald green)
+}
 
 const RANK_SPOKEN: Record<string, string> = {
   '2': 'two',
