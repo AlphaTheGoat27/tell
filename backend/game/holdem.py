@@ -165,6 +165,8 @@ class PracticeHand:
     # Chronological betting log used to persist the hand to Firestore:
     # entries are {street, actor, action, amount, pot_after}.
     action_log: list[dict] = field(default_factory=list)
+    # Coach conversation for this hand: {"role": "user"|"model", "text": ...}.
+    chat_history: list[dict] = field(default_factory=list)
 
     def _log(self, actor: str, action: str, amount: float = 0.0) -> None:
         self.action_log.append(
@@ -448,12 +450,22 @@ class PracticeGames:
         try:
             from game.gemini_coach import gemini_reply
 
-            result = gemini_reply(game, message)
+            result = gemini_reply(game, message, history=game.chat_history)
             if result.get("reply"):
+                self._record_chat(game, message, result["reply"])
                 return result
         except Exception:
             pass
 
         from game.coach_chat import coach_reply
 
-        return coach_reply(game, message)
+        result = coach_reply(game, message)
+        self._record_chat(game, message, result.get("reply", ""))
+        return result
+
+    @staticmethod
+    def _record_chat(game: PracticeHand, message: str, reply: str) -> None:
+        game.chat_history.append({"role": "user", "text": message})
+        if reply:
+            game.chat_history.append({"role": "model", "text": reply})
+        del game.chat_history[:-14]

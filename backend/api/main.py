@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Response, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 # Must run before auth/storage modules read os.environ at import/call time.
@@ -32,6 +33,21 @@ from storage.mastery_repository import MasteryRepository
 from game.holdem import PracticeGames, PracticeHand
 
 app = FastAPI(title="Tell API", version="0.2.0")
+
+# Frontend and backend live on different Cloud Run / Firebase Hosting domains
+# once deployed -- without this, every request gets blocked by the browser
+# before it even leaves. TELL_ALLOWED_ORIGINS is a comma-separated list;
+# defaults cover local dev. Set it on Cloud Run to your real frontend URL(s).
+_default_origins = "http://localhost:5173,http://127.0.0.1:5173,https://tell-506715.web.app"
+_allowed_origins = os.environ.get("TELL_ALLOWED_ORIGINS", _default_origins).split(",")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[o.strip() for o in _allowed_origins if o.strip()],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(health_router)
 
 store = create_store()
@@ -401,6 +417,25 @@ async def transcribe(
             encoding=audio_encoding,
             language_code="en-US",
             enable_automatic_punctuation=True,
+            # Poker vocabulary boost: without it "queen ten" arrives as
+            # "queen tomb" and card lists come out mangled.
+            speech_contexts=[
+                speech.SpeechContext(
+                    phrases=[
+                        "ace", "king", "queen", "jack", "ten", "nine", "eight",
+                        "seven", "six", "five", "four", "three", "two",
+                        "spades", "hearts", "diamonds", "clubs", "suited",
+                        "offsuit", "pocket", "pair", "two pair", "three of a kind",
+                        "trips", "straight", "flush", "full house", "four of a kind",
+                        "straight flush", "royal flush", "high card",
+                        "outs", "pot odds", "equity", "draw", "flush draw",
+                        "straight draw", "gutshot", "check", "call", "raise",
+                        "fold", "bet", "all in", "bluff", "preflop", "flop",
+                        "turn", "river", "showdown", "board",
+                    ],
+                    boost=10,
+                )
+            ],
         )
         if sample_rate:
             config_kwargs["sample_rate_hertz"] = sample_rate

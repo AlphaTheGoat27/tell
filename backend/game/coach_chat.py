@@ -1,8 +1,8 @@
 """Deterministic chat coach for practice hands.
 
-The coach answers questions (hand strength, pot odds, outs) and checks the
-learner's answers to its own quizzes (best five-card hand) using only the
-math in hand_reader / math_engine — never a language model.
+The coach answers questions (hand strength, pot odds, outs, draw chances)
+and checks the learner's answers to its own quizzes (best five-card hand)
+using only the math in hand_reader / math_engine — never a language model.
 """
 
 import re
@@ -32,6 +32,22 @@ RANK_WORDS = {
 TOKEN_RE = re.compile(
     r"\b(?:10s?|[2-9]s?|[TJQKA]|(?i:(?:two|three|four|five|six|seven|eight|nine|ten|jack|queen|king|ace)s?))\b"
 )
+
+# Common speech-to-text mishears of card vocabulary. Voice input routinely
+# mangles ranks ("queen tomb" for "queen ten"), so the coach repairs the most
+# frequent ones before parsing instead of telling the learner it didn't hear.
+SPEECH_REPAIRS = {
+    "tomb": "ten", "tom": "ten", "ton": "ten", "tenn": "ten", "tan": "ten",
+    "for": "four", "fore": "four", "forehead": "four",
+    "ate": "eight", "ait": "eight",
+    "too": "two", "to": "two",
+    "tree": "three", "free": "three",
+    "sick": "six", "sex": "six",
+    "nein": "nine", "wine": "nine",
+}
+
+# Letters/digits accepted inside compact card shorthand like "kq6610".
+COMPACT_RANK_CHARS = set("23456789tjqka")
 
 CLASS_WORDS = [
     (r"straight flush", "Straight Flush"),
@@ -65,6 +81,72 @@ def mentioned_classes(lower_text: str) -> list[str]:
             found.append(name)
             text = re.sub(pattern, " ", text)
     return found
+
+
+def _expand_compact_token(token: str) -> str | None:
+    """'kq6610' -> 'K Q 6 6 10'. Returns None unless every character maps
+    to a rank, so ordinary words never get shredded. Letters come out
+    uppercase because TOKEN_RE only reads single uppercase rank letters."""
+    chars = token.lower()
+    if len(chars) < 2 or not set(chars) <= (COMPACT_RANK_CHARS | {"0", "1"}):
+        return None
+    # Without a digit (or 3+ chars) this is an ordinary word like "at",
+    # not card shorthand.
+    if len(chars) < 3 and not any(c in "0123456789" for c in chars):
+        return None
+    parts: list[str] = []
+    i = 0
+    while i < len(chars):
+        if chars[i] == "1" and i + 1 < len(chars) and chars[i + 1] == "0":
+            parts.append("10")
+            i += 2
+        elif chars[i] in COMPACT_RANK_CHARS:
+            parts.append(chars[i].upper() if chars[i].isalpha() else chars[i])
+            i += 1
+        else:
+            return None
+    return " ".join(parts)
+
+
+def normalize_chat_text(text: str) -> str:
+    """Repair voice-input noise before parsing: common speech-to-text
+    mishears of ranks, and compact card shorthand typed without spaces.
+    Original casing is kept where possible — the rank tokenizer only reads
+    single UPPERCASE letters, so lone lowercase rank letters are lifted."""
+    words = re.findall(r"[A-Za-z0-9]+|[^\w\s]", text)
+    repaired: list[str] = []
+    for word in words:
+        if re.fullmatch(r"[A-Za-z]+", word):
+            fix = SPEECH_REPAIRS.get(word.lower())
+            if fix:
+                repaired.append(fix)
+            elif len(word) == 1 and word in "tjqk":
+                repaired.append(word.upper())
+            else:
+                repaired.append(word)
+        else:
+            expanded = _expand_compact_token(word)
+            repaired.append(expanded if expanded else word)
+    return " ".join(repaired)
+
+
+def looks_like_question(text: str) -> bool:
+    """True when the learner is asking the coach something rather than
+    answering a quiz — questions must be answered, never graded."""
+    lower = text.strip().lower()
+    if "?" in lower:
+        return True
+    if re.search(r"\b(can|could|would|should|will|do|does|did|is|are|was|were)\s+(i|you|it|we|there)\b", lower):
+        return True
+    if re.match(r"^(what|why|how|when|where|who|which)\b", lower):
+        return True
+    if re.search(
+        r"\b(in the future|later|possible|possibility|chance|odds of|make a|hit a|"
+        r"get a|catch|still|anyway|right now|tell me|explain|help me|what if)\b",
+        lower,
+    ):
+        return True
+    return False
 
 
 def _reply(text: str, topic: str, correct: bool | None = None) -> dict:
@@ -228,9 +310,88 @@ def _answer_why(game) -> dict:
     )
 
 
+def _answer_make_hand(game, mentioned: list[str]) -> dict:
+    """Answers 'can I make a flush / straight?' with the actual draw math
+    instead of grading the learner — they asked a question, not a quiz."""
+    hole = game.hands[0]
+    board = game.board
+    if not board:
+        tip, _tier = _preflop_tip(hole)
+        return _reply(
+            f"No board yet, so nothing is made or drawn — you only hold {format_cards(hole)}. {tip}",
+            "draw",
+        )
+
+    best = best_five(hole, board)
+    cards_to_come = 5 - len(board)
+    answers: list[str] = []
+
+    for name in mentioned:
+        if name == best["class"]:
+            answers.append(f"Yes — you already have it: {_best_hand_line(best)}.")
+            continue
+
+        if name == "Flush":
+            suit_counts = Counter(c[-1].lower() for c in hole + board)
+            suit, count = suit_counts.most_common(1)[0]
+            suit_name = {"s": "spades", "h": "hearts", "d": "diamonds", "c": "clubs"}[suit]
+            hero_holds_suit = any(c[-1].lower() == suit for c in hole)
+            if count >= 5:
+                answers.append(f"Yes — five {suit_name} are already in play; the flush counts.")
+            elif count == 4 and hero_holds_suit and cards_to_come >= 1:
+                approx = 9 * (4 if cards_to_come == 2 else 2)
+                answers.append(
+                    f"You're one {suit_name[:-1]} short — four {suit_name} between your hand and the board, "
+                    f"so any of the 9 remaining {suit_name} completes the flush. "
+                    f"Rule of {'4 and 2' if cards_to_come == 2 else '2'}: about {approx}% with {cards_to_come} card{'s' if cards_to_come == 2 else ''} to come."
+                )
+            elif cards_to_come == 0:
+                answers.append(
+                    f"No — no cards are coming. Your best {suit_name} count is only {count}, and a flush needs five."
+                )
+            elif count == 4 and not hero_holds_suit:
+                answers.append(
+                    f"Not with your cards — the four {suit_name} are all on the board, and a flush needs one in your hand to beat the board."
+                )
+            else:
+                needed = 5 - count
+                if needed > cards_to_come:
+                    answers.append(
+                        f"No — you hold {count} {suit_name} and would need {needed}, but only {cards_to_come} card{'s' if cards_to_come != 1 else ''} is coming. The flush is dead."
+                    )
+                else:
+                    answers.append(
+                        f"Only if everything breaks right — you hold {count} {suit_name} and need {needed} more, all of them {suit_name}. That's a long shot."
+                    )
+            continue
+
+        if name == "Straight":
+            labels = [l for l in draw_labels(hole, board) if "straight" in l]
+            if labels:
+                outs = draw_outs(hole, board)
+                approx = min(len(outs) * (4 if cards_to_come == 2 else 2), 100)
+                answers.append(
+                    f"Yes, there's a live straight draw — {labels[0]}. About {len(outs)} cards complete it, roughly {approx}% with {cards_to_come} card{'s' if cards_to_come == 2 else ''} to come."
+                )
+            elif cards_to_come == 0:
+                answers.append(f"No cards to come — your hand is set at {_best_hand_line(best)}.")
+            else:
+                answers.append(
+                    f"No straight draw right now — you'd need four connected ranks among your seven cards. Best at the moment: {_best_hand_line(best)}."
+                )
+            continue
+
+        answers.append(
+            f"You're not holding {name.lower()} right now — you're showing {_best_hand_line(best)}. "
+            "Ask me for my outs to see what can still improve you."
+        )
+
+    return _reply(" ".join(answers), "draw")
+
+
 def coach_reply(game, message: str) -> dict:
     """Return {reply, topic, correct, street} for a user chat message."""
-    result = _route(game, message)
+    result = _route(game, normalize_chat_text(message))
     result["street"] = game.street
     return result
 
@@ -254,32 +415,48 @@ def _route(game, message: str) -> dict:
     if re.search(r"\bwhy\b|\bexplain\b|\bhow come\b", lower):
         return _answer_why(game)
 
+    is_question = looks_like_question(text)
+    mentioned = mentioned_classes(lower)
     tokens = extract_rank_tokens(text)
-    if game.board:
-        if len(tokens) >= 3:
-            return _grade_card_list(game, tokens)
-        mentioned = mentioned_classes(lower)
-        if mentioned:
-            return _grade_class(game, mentioned)
-        if len(tokens) in (1, 2):
-            return _reply(
-                "Name all five cards of your best hand — e.g. type them like 9 9 7 7 4.",
-                "best_hand",
-            )
-    else:
-        if tokens or mentioned_classes(lower):
+
+    if not game.board:
+        if tokens or mentioned:
             return _reply(
                 "No board cards yet — your best hand is just your two hole cards. Wait for the flop, then I'll quiz you on the five-card hand.",
                 "best_hand",
             )
-
-    if game.board:
+        tip, _tier = _preflop_tip(game.hands[0]) if game.hands else ("check your cards", "weak")
         return _reply(
-            "Type your best five cards and I'll check them (like 9 9 7 7 4), or ask me about hand strength, pot odds, or outs.",
+            f"Preflop: {tip}. Ask me 'how strong is my hand?' or take an action with the buttons.",
             "fallback",
         )
-    tip, _tier = _preflop_tip(game.hands[0]) if game.hands else ("check your cards", "weak")
+
+    # Questions about making a hand ("can I flush?", "in the future can I make
+    # a straight?") get the draw math — never a quiz verdict.
+    if mentioned and is_question:
+        return _answer_make_hand(game, mentioned)
+
+    # "What is my best hand?" asks for the answer — give it instead of
+    # re-prompting the quiz.
+    if is_question and re.search(r"\bbest\b", lower) and re.search(r"\bhand\b|\bcards\b", lower):
+        best = best_five(game.hands[0], game.board)
+        return _reply(
+            f"Your best five-card hand is {_best_hand_line(best)}.",
+            "best_hand",
+        )
+
+    if len(tokens) >= 3 and not is_question:
+        return _grade_card_list(game, tokens)
+    if mentioned and not is_question:
+        return _grade_class(game, mentioned)
+    if len(tokens) in (1, 2) and not is_question:
+        return _reply(
+            "Name all five cards of your best hand — e.g. type them like 9 9 7 7 4.",
+            "best_hand",
+        )
+
     return _reply(
-        f"Preflop: {tip}. Ask me 'how strong is my hand?' or take an action with the buttons.",
+        "I'm here — ask me anything about this hand: \"what are my outs?\", \"pot odds?\", "
+        "\"can I make a flush?\" — or type your best five cards (like 9 9 7 7 4) and I'll check them.",
         "fallback",
     )

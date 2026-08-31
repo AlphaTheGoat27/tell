@@ -1,0 +1,10 @@
+# Files excluded from `gcloud run deploy --source backend`.
+# NOTE: agent/.env is intentionally NOT ignored here — the Gemini coach
+# loads it at runtime, so it must ship with the image. This file overrides
+# the repo .gitignore for deploy uploads.
+.git
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+**/tests/

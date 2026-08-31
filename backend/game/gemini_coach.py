@@ -21,7 +21,12 @@ except ImportError:  # environments without the Google SDK
     genai = None
     types = None
 
-from game.coach_chat import extract_rank_tokens, mentioned_classes
+from game.coach_chat import (
+    extract_rank_tokens,
+    looks_like_question,
+    mentioned_classes,
+    normalize_chat_text,
+)
 from game.hand_reader import (
     available_ranks,
     best_five,
@@ -150,6 +155,13 @@ def collect_facts(game) -> dict:
     facts["best_five"] = format_cards(best["cards"])
     facts["hand_class"] = best["class"]
 
+    cards_to_come = 5 - len(game.board)
+    facts["cards_to_come"] = (
+        f"{cards_to_come} card{'s' if cards_to_come != 1 else ''} still to come"
+        if cards_to_come
+        else "none — the board is complete"
+    )
+
     odds = calculate_pot_odds(game.pot, 1.0)
     facts["pot_odds"] = (
         f"a $1.00 call into the ${game.pot:.2f} pot requires "
@@ -171,9 +183,14 @@ def collect_facts(game) -> dict:
 
 
 def assess_guess(game, text: str) -> dict | None:
-    """Deterministically grade a best-hand quiz answer. None = not an answer."""
+    """Deterministically grade a best-hand quiz answer. None = not an answer.
+    Questions ("can I flush?", "what are my outs?") are never quiz answers —
+    they must be answered conversationally, so they return None here."""
     if game.complete or len(game.board) < 3:
         return None
+    if looks_like_question(text):
+        return None
+    text = normalize_chat_text(text)
     hole = game.hands[0]
     best = best_five(hole, game.board)
     truth = f"{format_cards(best['cards'])} — {best['class']}"
@@ -227,6 +244,7 @@ def _system_prompt(facts: dict, assessment: dict | None) -> str:
         "3. When the hand is over (or they folded and bots are face up) and they ask who won or why, compare the showdown hands above and cite each player's actual best five-card hand.",
         "4. Keep replies conversational and under ~90 words. No markdown.",
         "5. Strategy and math education only; no real-money advice or winning guarantees.",
+        "6. The earlier conversation for this hand is provided as history. Use it to resolve follow-ups ('in the future...', 'what about now') and never re-ask something already answered.",
     ]
     if assessment is not None:
         if assessment["correct"] is True:
@@ -247,8 +265,12 @@ def _system_prompt(facts: dict, assessment: dict | None) -> str:
     return "\n".join(lines)
 
 
-def gemini_reply(game, message: str) -> dict:
-    """Return {reply, topic, correct} composed by Gemini, grounded in facts."""
+def gemini_reply(game, message: str, history: list[dict] | None = None) -> dict:
+    """Return {reply, topic, correct} composed by Gemini, grounded in facts.
+
+    `history` is the prior chat for this hand ([{"role": "user"|"model",
+    "text": ...}]) and is sent as conversation turns so the coach answers
+    with full context, not just the latest message."""
     client = _get_client()
     if client is None:
         raise RuntimeError("Gemini is not available in this environment.")
@@ -257,9 +279,21 @@ def gemini_reply(game, message: str) -> dict:
     assessment = assess_guess(game, message)
     prompt = _system_prompt(facts, assessment)
 
+    contents = []
+    for turn in history or []:
+        role = "model" if turn.get("role") == "model" else "user"
+        text = (turn.get("text") or "").strip()
+        if text:
+            contents.append(
+                types.Content(role=role, parts=[types.Part.from_text(text=text)])
+            )
+    contents.append(
+        types.Content(role="user", parts=[types.Part.from_text(text=message)])
+    )
+
     response = client.models.generate_content(
         model=GEMINI_MODEL,
-        contents=message,
+        contents=contents,
         config=types.GenerateContentConfig(
             system_instruction=prompt,
             temperature=0.5,

@@ -35,8 +35,14 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('play')
   const [refreshKey, setRefreshKey] = useState(0)
   const [reviewHandId, setReviewHandId] = useState<string | null>(null)
-  const [musicEnabled, setMusicEnabled] = useState(true)
-  const [musicVolume, setMusicVolume] = useState(0.28)
+  const [musicEnabled, setMusicEnabled] = useState(() => {
+    const saved = localStorage.getItem('tell_musicEnabled')
+    return saved !== null ? JSON.parse(saved) : true
+  })
+  const [musicVolume, setMusicVolume] = useState(() => {
+    const saved = localStorage.getItem('tell_musicVolume')
+    return saved !== null ? parseFloat(saved) : 0.28
+  })
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
   useEffect(() => {
@@ -48,6 +54,7 @@ export default function App() {
     audio.preload = 'auto'
 
     const startMusic = async () => {
+      if (!musicEnabled) return
       try {
         await audio.play()
 
@@ -60,7 +67,7 @@ export default function App() {
       }
     }
 
-    // Try to start immediately.
+    // Try to start immediately only if music is enabled.
     void startMusic()
 
     // Fallback for browsers that block autoplay.
@@ -77,7 +84,7 @@ export default function App() {
       audio.currentTime = 0
       audioRef.current = null
     }
-  }, [])
+  }, [musicEnabled, musicVolume])
 
 useEffect(() => {
   const audio = audioRef.current
@@ -94,6 +101,10 @@ useEffect(() => {
   }
 }, [musicEnabled, musicVolume])
 
+useEffect(() => {
+  localStorage.setItem('tell_musicEnabled', JSON.stringify(musicEnabled))
+  localStorage.setItem('tell_musicVolume', JSON.stringify(musicVolume))
+}, [musicEnabled, musicVolume])
 
   useEffect(() => {
     return watchAuth((fbUser) => {
@@ -346,7 +357,7 @@ useEffect(() => {
           <button
             type="button"
             className="btn-ghost"
-            onClick={() => setMusicEnabled((enabled) => !enabled)}
+            onClick={() => setMusicEnabled((enabled: boolean) => !enabled)}
             aria-label={musicEnabled ? 'Pause background music' : 'Play background music'}
             title={musicEnabled ? 'Pause music' : 'Play music'}
             style={{ marginRight: 4 }}
